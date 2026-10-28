@@ -1,9 +1,33 @@
 {
-  "team_name": "SHAP Shifters",
-  "students": [
-    {"student_id": "K11913166", "first_name": "TODO", "last_name": "TODO", "email": "TODO", "github_username": "TODO"},
-    {"student_id": "K12456306", "first_name": "Alfiia", "last_name": "Ziganshina", "email": "TODO", "github_username": "AlfiyaZi"},
-    {"student_id": "K51821183", "first_name": "TODO", "last_name": "TODO", "email": "TODO", "github_username": "TODO"},
-    {"student_id": "K12554936", "first_name": "TODO", "last_name": "TODO", "email": "TODO", "github_username": "TODO"}
-  ]
+    "team_name": "SHAP Shifters",
+    "students": [
+        {
+            "student_id": "k11913166",
+            "first_name": "Julian",
+            "last_name": "Bakan",
+            "email": "julian.bakan@gmx.at",
+            "github_user": "juba98"
+        },
+        {
+            "student_id": "k12456306",
+            "first_name": "Alfiia",
+            "last_name": "Ziganshina",
+            "email": "alfiya79@gmail.com",
+            "github_user": "AlfiyaZi"
+        },
+        {
+            "student_id": "k51821183",
+            "first_name": "Ahmad",
+            "last_name": "Hasan",
+            "email": "hasan.abd.ahmad@gmail.com",
+            "github_user": "AhmadHasan96"
+        },
+        {
+            "student_id": "k12554936",
+            "first_name": "Aqeel",
+            "last_name": "Jajja",
+            "email": "aqeeljajja@gmail.com",
+            "github_user": "aqeeljajja"
+        }
+    ]
 }

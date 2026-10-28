@@ -31,8 +31,8 @@ The two pairs switch roles after Phase I, as the assignment requires.
 
 | Pair | Members | Phase I | Phase II |
 |---|---|---|---|
-| A | TODO | AI-aided | human-only |
-| B | TODO | human-only | AI-aided |
+| A | Julian Bakan, Ahmad Hasan | AI-aided | human-only |
+| B | Alfiia Ziganshina, Aqeel Jajja | human-only | AI-aided |
 
 ```
 shared/                      common starting point agreed by all four members

@@ -1,9 +1,25 @@
 {
-  "team_name": "SHAP Shifters",
-  "students": [
-    {"first_name": "TODO", "last_name": "TODO", "workload": 0.25},
-    {"first_name": "Alfiia", "last_name": "Ziganshina", "workload": 0.25},
-    {"first_name": "TODO", "last_name": "TODO", "workload": 0.25},
-    {"first_name": "TODO", "last_name": "TODO", "workload": 0.25}
-  ]
+    "team_name": "SHAP Shifters",
+    "students": [
+        {
+            "first_name": "Julian",
+            "last_name": "Bakan",
+            "workload": 0.25
+        },
+        {
+            "first_name": "Alfiia",
+            "last_name": "Ziganshina",
+            "workload": 0.25
+        },
+        {
+            "first_name": "Ahmad",
+            "last_name": "Hasan",
+            "workload": 0.25
+        },
+        {
+            "first_name": "Aqeel",
+            "last_name": "Jajja",
+            "workload": 0.25
+        }
+    ]
 }
