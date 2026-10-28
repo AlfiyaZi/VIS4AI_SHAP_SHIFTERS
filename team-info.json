@@ -1,9 +1,9 @@
 {
-  "team_name": "SHAP_SHIFTERS",
+  "team_name": "SHAP Shifters",
   "students": [
-    {"student_id": "TODO", "first_name": "Alfiia", "last_name": "Ziganshina", "email": "TODO", "github_username": "AlfiyaZi"},
-    {"student_id": "TODO", "first_name": "TODO", "last_name": "TODO", "email": "TODO", "github_username": "TODO"},
-    {"student_id": "TODO", "first_name": "TODO", "last_name": "TODO", "email": "TODO", "github_username": "TODO"},
-    {"student_id": "TODO", "first_name": "TODO", "last_name": "TODO", "email": "TODO", "github_username": "TODO"}
+    {"student_id": "K11913166", "first_name": "TODO", "last_name": "TODO", "email": "TODO", "github_username": "TODO"},
+    {"student_id": "K12456306", "first_name": "Alfiia", "last_name": "Ziganshina", "email": "TODO", "github_username": "AlfiyaZi"},
+    {"student_id": "K51821183", "first_name": "TODO", "last_name": "TODO", "email": "TODO", "github_username": "TODO"},
+    {"student_id": "K12554936", "first_name": "TODO", "last_name": "TODO", "email": "TODO", "github_username": "TODO"}
   ]
 }

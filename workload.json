@@ -1,8 +1,8 @@
 {
-  "team_name": "SHAP_SHIFTERS",
+  "team_name": "SHAP Shifters",
   "students": [
-    {"first_name": "Alfiia", "last_name": "Ziganshina", "workload": 0.25},
     {"first_name": "TODO", "last_name": "TODO", "workload": 0.25},
+    {"first_name": "Alfiia", "last_name": "Ziganshina", "workload": 0.25},
     {"first_name": "TODO", "last_name": "TODO", "workload": 0.25},
     {"first_name": "TODO", "last_name": "TODO", "workload": 0.25}
   ]
