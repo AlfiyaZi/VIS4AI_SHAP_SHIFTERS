@@ -1,0 +1,17 @@
+# Data never goes into this public repo
+data/
+*.csv
+*.parquet
+*.npy
+*.npz
+*.pkl
+
+# Python / notebooks
+__pycache__/
+.ipynb_checkpoints/
+.venv/
+venv/
+.env
+
+# OS
+.DS_Store
