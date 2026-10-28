@@ -1,5 +1,21 @@
 # Review of the shared Phase I baseline
 
+## Code review of `01_prepare_baseline_data.py` (2026-10-28)
+
+These are blocking: the current Phase I numbers should not be reported until they are fixed.
+
+1. **The "clinical presentation" text is generated from the label.** `derive_presenting_notes_from_inputs` picks symptom phrases ("elevated serum creatinine, proteinuria …", "chest tightness …") from `current_pathway`, which is computed from the diagnosis codes. UCI contains no free text, so these symptoms are invented and encode the answer. For a patient's last admission `true_pathway` falls back to `current_pathway`, so the text contains the label directly; for earlier admissions it correlates strongly with it. Both models read this text, so accuracy and agreement mostly measure how well they decode the injected phrases.
+2. **Model B > Model A is built in.** The code comment says the synonyms exist "so Count-KNN (exact word match) struggles with phrasing variations while semantic models group them". The headline comparison is therefore a property of the generator, not of the models.
+3. **Silent fallback encoder.** If `torch`/`transformers` fail to import, `ClinicalSemanticEncoderFallback` is used: TF-IDF + random projections with hand-set weights that up-weight demographics in "layer 4" and keep a "residual demographic bias" in "layer 12". It still outputs 768-D "layers", so any demographic-bias finding from it is designed in. Only a console print marks the switch.
+4. **Silent fallback dataset.** If the UCI download fails, `generate_synthetic_cohort` runs instead, also with hand-designed patterns. The second copy of the notebook (800 records, patient IDs `P1000…`) was produced this way; only the copy with real UCI IDs (`P124686…`, 1,078 records) was pushed.
+5. **Script and notebook versions differ.** The pushed notebook reads a column `modelB_encoder_used` ("Model B Encoder Verified …"), but this script does not write it. The script that produced the notebook's outputs is not in the repo.
+
+Smaller points: same-patient neighbors are already excluded (good); the cohort quotas plus `max_patients // 2` truncation explain the 384 patients; one symptom phrase contains stray characters ("progressive視力/visual floaters").
+
+**Suggested fix:** drop `presenting_notes` from the text (serialize only real UCI fields), make missing `torch`/`transformers` and a failed download raise errors instead of falling back, write the encoder name and dataset source into the outputs, and then rerun on a larger cohort with a majority-class baseline.
+
+## Review of the overview figure
+
 Reviewed from the overview figure of `02_phase1_shared_baseline.ipynb` (2026-10-27). Reported setup: UCI Diabetes 130-US, 1,078 repeat admissions from 384 patients, k = 10 KNN; Model A (count KNN) 42.9 % accuracy, Model B (Bio_ClinicalBERT) 53.2 % accuracy (majority vote of neighbors vs. actual pathway, 4 classes).
 
 ## Correctness checks (before trusting any number)

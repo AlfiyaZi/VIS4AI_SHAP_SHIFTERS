@@ -41,6 +41,7 @@ docs/
   baseline_review.md     review of the shared Phase I baseline and checks to run
   ai4vis_log.md          AI4VIS prompt / decision log
   proposal_v1_mimic/     original MIMIC-IV proposal (document + slides), kept for reference
+01_prepare_baseline_data.py  shared data + model pipeline (writes outputs/, git-ignored)
 notebooks/               analysis notebooks
 figures/                 aggregated figures only
 data/                    local data, git-ignored
@@ -50,4 +51,4 @@ workload.json            required by the course
 
 ## Setup
 
-Download the UCI dataset into `data/` (it is git-ignored). Notebooks and requirements will be added with the shared baseline.
+Run `python 01_prepare_baseline_data.py` (downloads UCI into `data_cache/`, writes `outputs/`, both git-ignored), then open `notebooks/02_phase1_shared_baseline.ipynb`. Known issues: see [docs/baseline_review.md](docs/baseline_review.md).

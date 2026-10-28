@@ -15,3 +15,7 @@ venv/
 
 # OS
 .DS_Store
+
+# Pipeline outputs and downloaded data
+outputs/
+data_cache/
