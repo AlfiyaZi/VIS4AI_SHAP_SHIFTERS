@@ -2,26 +2,65 @@
 
 Summary of the lecture and lab material relevant to the assignment. Slides themselves are on Moodle.
 
-## Organization
+## Organization (from the Moodle course page, course 364.036 ff., 2026W)
 
-- Lecture (VL, 1.5 ECTS) Thursday 10:15–11:45, HS 5; lab (UE, 1.5 ECTS) Thursday/Friday, S3 055.
-- Group assignment, 4 students. Attendance is compulsory only at the final presentation (on-site or Zoom with video and full name).
+- Lecture (VL, 1.5 ECTS) weekly, Thursday 10:15–11:45, hybrid (HS 6 + online). Written on-site Moodle exam (Linz, Vienna or Bregenz).
+- Lab (UE, 1.5 ECTS) held irregularly, hybrid (S3 055 + online); you may join any slot.
+- Group assignment, 4 students split into two pairs. Lab attendance is optional, except that you must attend **at least one** final presentation session.
 - Grading key: <50 → 5, <63 → 4, <75 → 3, <88 → 2, ≥88 → 1.
-- Contact: Moodle forum, or ai-and-vis-course@jku.at for individual requests.
+- Contact: Moodle forum, or ai-and-vis-course@jku.at (not individual team members).
 - No deadline extensions.
 
-## Assignment requirements (Lab 02)
+Lectures: 01 Introduction · 02 Fundamentals & Explaining Algorithms · 03 Explaining Through Projections · 04 Visual Explanation Techniques I · 05 Visual Explanation Techniques II · 06 GenAI & VIS · 07 Q&A, Recap · 08 Exam.
 
-**Phase I – How does the model behave?** Keep the black box closed; look only at inputs and outputs.
-- Visualization must be an *investigative tool*, not a chart of a performance metric.
-- Patterns to look for: errors/confidence changes, biases, hallucination, safety violations, shifts in output characteristics.
-- Input data: official test set, established benchmark, synthetic data (edge cases, perturbations, counterfactuals), or the training data as a source of hypotheses (e.g. under-represented cases).
+### Key dates
 
-**Phase II – What did the model learn?** Open the black box; explore internal representations to *explain* Phase I behavior (e.g. Phase I: more mistakes on certain backgrounds → Phase II: does the model rely on background features?). A gallery of saliency maps alone is not enough.
+| Date | Event |
+|---|---|
+| Wed 21.10.2026 23:59 | Group formation |
+| Wed 28.10.2026 23:59 | Task selection (task, model, input dataset) |
+| Thu 29.10.2026 13:45 | Lab: Practical Examples 2 |
+| Thu 05.11 / Fri 06.11.2026 | Feedback 1 (book a 10-min slot, S3 055) |
+| Wed 11.11.2026 23:59 | **Midpoint submission (end of Phase I)** |
+| Thu 12.11.2026 13:45 | Lab: Practical Examples 3 |
+| 26.11 – 04.12.2026 | Feedback 2 (six slots) |
+| Wed 09.12.2026 23:59 | **Final submission (end of Phase II)** |
+| 10.12 / 11.12 / 17.12.2026 | Live presentation sessions (attend at least one) |
+| Thu 17.12.2026 | Written exam |
+| Thu 18.02.2027 | Retry exam |
 
-**AI4VIS.** Explore how generative AI supports and influences visualization design and analysis. Record important prompts and which suggestions were accepted, rejected or refined, and why. Report failure patterns and emerging best practices.
+Note: the Lecture 01 slides list older exam dates (11.12.2025 / 19.02.2026); the Moodle dates above are authoritative.
 
-**Repository.** Public GitHub repo with `team-info.json` and `workload.json` in the root.
+## Assignment requirements (official Moodle description)
+
+**Task and model.** A model trained on a specific task: pre-trained, trained or fine-tuned; discriminative or generative. One model in depth or several compared. All four members choose together.
+
+**Phase I – How does the model behave?** Black box: inputs and outputs only.
+- Input data: official test set, established benchmark, or a synthetic dataset for edge cases / hypotheses. Training data may be explored as a source of hypotheses.
+- The dataset must be **large enough that reported patterns are systematic**, not cherry-picked.
+- Behavior = error patterns, biases, hallucinations, shifts in diversity / confidence / style, …
+- **Not a performance report**; a table of benchmark scores is not sufficient. Visualizations must expose behavior that aggregate metrics hide.
+- **Identifying a pattern is not enough; understand it in depth.** E.g. for an error cluster in a projection: what distinguishes it, why is it dense or sparse, does it have sub-clusters with different behavior?
+
+**Phase II – What did the model learn?** Open the black box (weights, representations, attention, gradients), ideally continuing from Phase I findings.
+- Compare how input groups are organized in representation space, across layers, or across training checkpoints.
+- Techniques: saliency maps, attention maps, LIME, SHAP, KNN, others. **Each pair must use at least two techniques and compare or combine their insights.**
+- Goal: link regions of representation space to behaviors or input groups (hypothesis-driven, e.g. compare saliency of correct vs. incorrect examples), not visualize arbitrary examples.
+
+**AI4Vis.**
+- Two pairs: **AI-aided** (GenAI actively used to brainstorm, interpret, suggest/generate visualizations and code) and **human-only** (own reasoning and code; AI only for code completion and documentation lookup). **Pairs switch roles after Phase I.**
+- Both pairs work on the same model and task. At the start of each phase, agree on a common direction: main questions, data, initial visualization, which Phase I findings to pursue in Phase II.
+- Then investigate separately; communicate, but do not make the pipelines identical, so the differences can be discussed.
+- At the end of each phase compare: insights one pair missed, visualization choices, breadth vs. depth, speed vs. verification overhead, confidence in conclusions and the evidence behind it.
+- The AI-aided pair is expected to build **richer interaction or broader analysis**, and to keep a record: important prompts, how suggestions affected decisions, what was accepted / modified / refined and why, plus failure patterns and best practices.
+
+**Deliverables.**
+- *Midpoint (11.11):* code from both pairs; AI interaction record of the Phase I AI-aided pair; **progress video ≤ 5 min** (problem, what each pair did and found, key visualizations, Phase II plan). Overtime costs points.
+- *Final (09.12):* complete code from both pairs; AI records from both phases; **10-min recorded presentation + slide deck** (problem and motivation, both pairs' methods and findings for Phase I then II, AI4Vis reflection, conclusion). A random subset of groups presents live instead; the whole group or one member may present.
+
+**Grading.** Open-ended: ambition and originality of the problem count, but analysis quality matters most. A challenging problem done well can earn more than basic goals reached on a simple problem.
+
+**Repository.** Public GitHub repo; submit its URL. `team-info.json` and `workload.json` (templates on Moodle) in the root, filled in before submission.
 
 ## Phase I investigative tools (Lab 02, practical examples)
 

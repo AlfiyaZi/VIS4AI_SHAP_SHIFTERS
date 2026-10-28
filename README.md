@@ -15,17 +15,22 @@ The original plan used MIMIC-IV + CLMBR-T-base; it was dropped because of access
 ## Assignment phases
 
 - **Phase I – How does the model behave?** Black box closed: investigative visualizations of inputs vs. neighbors (scatter plot with one variable per channel, reordered confusion matrices, input-feature UMAP with drill-down, admission paths, counterfactual neighbor flips).
-- **Phase II – What did the model learn?** Black box open: embedding projections, probing classifiers, distance decomposition, embedding trajectories. Each view explains one Phase I observation.
-- **AI4VIS:** two members design with generative AI, two without, then swap; prompts and accepted/rejected suggestions are logged in [docs/ai4vis_log.md](docs/ai4vis_log.md).
+- **Phase II – What did the model learn?** Black box open: embedding projections, probing classifiers, distance decomposition (e.g. SHAP), embedding trajectories. Each view explains one Phase I observation; each pair uses at least two techniques.
+- **AI4Vis:** the group splits into an AI-aided pair and a human-only pair, which switch roles after Phase I. The AI-aided pair's prompts and decisions are logged in [docs/ai4vis_log.md](docs/ai4vis_log.md).
 
 ## Timeline
 
 | Date | Milestone |
 |---|---|
 | 21.10.2026 | Group formation |
-| 28.10.2026 | Task & model registration on Moodle |
-| 11.11.2026 | Midpoint (Phase I) |
-| 09.12.2026 | Final deadline, then mandatory presentations |
+| 28.10.2026 | Task selection (task, model, dataset) on Moodle |
+| 05./06.11.2026 | Feedback 1 |
+| 11.11.2026 | Midpoint: code of both pairs, Phase I AI record, ≤ 5-min video |
+| 26.11.–04.12.2026 | Feedback 2 |
+| 09.12.2026 | Final: code, AI records, 10-min recorded presentation + slides |
+| 10.–17.12.2026 | Live presentation sessions (attend at least one) |
+
+Full course notes and requirements: [docs/course_notes.md](docs/course_notes.md).
 
 ## Repository layout
 
