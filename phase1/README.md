@@ -4,7 +4,7 @@ Black box closed: we look only at what goes in and what comes out.
 
 - **Input:** one patient admission (age, sex, race, HbA1c, glucose, length of stay, lab / medication / diagnosis counts, insulin, …).
 - **Output:** the k = 10 neighbors, plus what we derive from them: predicted pathway (majority vote), neighbor agreement (the model's "confidence"), the neighbors' demographics, and how many neighbors change when we edit the input.
-- **Not allowed in Phase I:** embeddings, layers, attention, weights (`shared/outputs/phase2_model_internals.npz` stays closed until Phase II).
+- **Not allowed in Phase I:** embeddings, layers, attention, weights (`shared/data_cache/phase2_model_internals.npz` stays closed until Phase II).
 
 ## Step 0 – fix the shared pipeline (before any analysis)
 

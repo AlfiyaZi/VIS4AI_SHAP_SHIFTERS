@@ -1,909 +1,880 @@
 """
 01_prepare_baseline_data.py
 ===========================
-Shared Pre-Phase I Data & Model Pipeline for VIS4AI / AI4VIS Lab Assignment.
+Shared Phase I baseline for team SHAP_SHIFTERS (JKU AI and Visualization Lab WS26).
 
-What this script does (All 4 team members run this ONCE before splitting into pairs):
-1. Loads the public clinical cohort:
-   - Default (`--dataset uci_diabetes`): UCI Diabetes 130-US Hospitals (ID 296), filtered to
-     repeat-admission diabetes patients so later complication pathways and longitudinal
-     admission trajectories can be observed.
-   - Offline fallback (`--dataset synthetic_demo`): Generates a realistic clinical cohort if offline.
-2. Extracts human-interpretable input attributes and serializes a realistic clinical admission
-   summary note for each patient encounter (strictly WITHOUT leaking the future target pathway!).
-3. Runs k-Nearest-Neighbor (k=10) patient-similarity retrieval using:
-   - Model A (Transparent Baseline): Count / TF-IDF clinical feature vector + Cosine KNN.
-   - Model B (Foundation Model): Pretrained `emilyalsentzer/Bio_ClinicalBERT` 768-D embeddings + Cosine KNN
-     (with a multi-layer clinical semantic transformer fallback if run in a kernel without PyTorch).
-4. Evaluates counterfactuals & perturbations (Sex swap, Age shift, HbA1c lab perturbation) to
-   measure "Neighbor Flip" sensitivity in Phase I.
-5. Saves strictly separated outputs:
-   - `outputs/phase1_blackbox_io.csv` -> ONLY Inputs & Outputs (Black box closed for Phase I!)
-   - `outputs/phase1_neighbors_detail.json` -> Neighbor lists for interactive drill-down.
-   - `outputs/phase2_model_internals.npz` -> 768-D embeddings & layer hidden states (For Phase II ONLY!).
+Run ONCE by whoever has a working PyTorch setup. Everything it produces is a static,
+self-contained table in ``shared/data/``. Both pairs (AI-aided and human-only) analyse
+these tables; nobody downstream has to run a model, a GPU or this script.
+
+Pipeline
+--------
+1. Data: UCI Diabetes 130-US Hospitals 1999-2008 (UCI ID 296). Downloaded once into
+   ``shared/data_cache/`` (official UCI zip via ``urllib``; ``ucimlrepo`` as second source).
+2. Cohort: patients with >= 2 encounters (``patient_nbr``). Visits are ordered by
+   ``encounter_id``. The label of visit V_t is the primary diagnosis (``diag_1``) of the
+   NEXT visit V_t+1, mapped to 4 pathways. The final visit of every patient is dropped
+   (it has no next admission to evaluate).
+3. Inputs: 15 authentic UCI encounter fields of V_t only. No generated or invented text.
+   Model B reads them through one fixed serialization template (``TEXT_TEMPLATE``);
+   Model A reads exactly the same fields as a numeric / one-hot vector.
+4. Retrieval (k = 10, cosine, neighbors always from OTHER patients):
+   - Model A: StandardScaler (numeric) + one-hot (categorical) -> cosine KNN.
+   - Model B: ``emilyalsentzer/Bio_ClinicalBERT``, mean-pooled last layer (768-D) -> cosine KNN.
+   - Baselines: majority class and random neighbors.
+5. Counterfactual edits of the query (index unchanged): sex swap, age +20 years,
+   HbA1c None/Norm -> ">8". Neighbor flips = k - |original neighbors & edited neighbors|.
+6. 2-D UMAP of the input features (Model A space; no model output involved).
+
+There are NO silent fallbacks: a failed download, a missing torch / transformers install or a
+model that does not produce 768-D embeddings raises an error.
+
+Outputs (``shared/data/``, Parquet + CSV; list columns are JSON strings in the CSV files)
+------------------------------------------------------------------------------------------
+- cohort_encounters.parquet     raw UCI fields, derived fields, true next pathway, UMAP x/y
+- retrieval_results.parquet     neighbors, agreement and predictions of A, B and baselines
+- counterfactual_flips.parquet  neighbor flips per encounter for 3 edits x 2 models
+- baseline_metrics.json         cohort statistics, recall, agreement, baselines, provenance
+
+Phase II material (embeddings, feature matrices) goes to
+``shared/data_cache/phase2_model_internals.npz`` and stays closed during Phase I.
+
+Usage
+-----
+    python shared/01_prepare_baseline_data.py                  # full run (GPU if available)
+    python shared/01_prepare_baseline_data.py --device cpu     # explicit CPU batcher
+    python shared/01_prepare_baseline_data.py --download-only  # just fetch the UCI data
 """
 
 from __future__ import annotations
 
 import argparse
-import io
+import datetime as dt
+import hashlib
 import json
+import os
+import platform
+import shutil
+import sys
+import time
+import urllib.request
 import zipfile
-from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
-from sklearn.decomposition import TruncatedSVD
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+SCRIPT_VERSION = "2.0.0"
 
 # ---------------------------------------------------------------------------
-# 1. ICD-9 Diagnosis Code -> Complication Pathway Mapping (Clinical Ground Truth)
+# Constants
 # ---------------------------------------------------------------------------
-def map_icd9_to_pathway(diag_code: str) -> str:
-    """
-    Maps an ICD-9 diagnosis code to one of the 4 diabetes complication pathways:
-      - 'Kidney_Renal': Diabetic nephropathy (250.4x), nephritis/renal failure (580-599)
-      - 'Cardiovascular': Circulatory diseases (390-459), diabetic peripheral circulatory (250.7x)
-      - 'Eye_Neurological': Diabetic retinopathy (250.5x), ophthalmic (360-379), neuropathy (250.6x, 350-359)
-      - 'Uncomplicated_Other': Uncomplicated diabetes (250.0x-250.3x) or general medical codes
-    """
-    if pd.isna(diag_code):
-        return "Uncomplicated_Other"
-    code = str(diag_code).strip()
-    if not code or code == "?":
-        return "Uncomplicated_Other"
+UCI_DATASET_ID = 296
+UCI_ZIP_URL = (
+    "https://archive.ics.uci.edu/static/public/296/"
+    "diabetes+130-us+hospitals+for+years+1999-2008.zip"
+)
+UCI_EXPECTED_ROWS = 101_766
+MODEL_B_NAME = "emilyalsentzer/Bio_ClinicalBERT"
+MODEL_B_DIM = 768
 
-    if code.startswith("250."):
-        sub = code.split(".")[1][:1] if "." in code and len(code.split(".")[1]) > 0 else "0"
-        if sub == "4":
-            return "Kidney_Renal"
-        if sub in ("5", "6"):
-            return "Eye_Neurological"
-        if sub == "7":
-            return "Cardiovascular"
-        return "Uncomplicated_Other"
+KIDNEY = "Kidney / Renal"
+CARDIO = "Cardiovascular"
+EYE_NEURO = "Eye / Neurological"
+OTHER = "Uncomplicated / Other"
+PATHWAYS = [KIDNEY, CARDIO, EYE_NEURO, OTHER]
 
-    if code[0].isalpha():
-        return "Uncomplicated_Other"
-    try:
-        num = float(code.split(".")[0])
-    except ValueError:
-        return "Uncomplicated_Other"
-
-    if 390 <= num <= 459 or num == 785:
-        return "Cardiovascular"
-    if 580 <= num <= 599:
-        return "Kidney_Renal"
-    if 350 <= num <= 379:
-        return "Eye_Neurological"
-    return "Uncomplicated_Other"
-
-
-def resolve_patient_pathway(row: pd.Series) -> str:
-    """
-    Determines the complication pathway across diag_1, diag_2, diag_3,
-    prioritizing specific complications over 'Uncomplicated_Other'.
-    """
-    pathways = [
-        map_icd9_to_pathway(row.get("diag_1", "")),
-        map_icd9_to_pathway(row.get("diag_2", "")),
-        map_icd9_to_pathway(row.get("diag_3", "")),
-    ]
-    for priority in ["Kidney_Renal", "Eye_Neurological", "Cardiovascular"]:
-        if priority in pathways:
-            return priority
-    return "Uncomplicated_Other"
-
-
-# ---------------------------------------------------------------------------
-# 2. Clinical Note Serialization (Strictly Observable Inputs — NO Label Leakage!)
-# ---------------------------------------------------------------------------
-AGE_MIDPOINTS = {
-    "[0-10)": 5, "[10-20)": 15, "[20-30)": 25, "[30-40)": 35, "[40-50)": 45,
-    "[50-60)": 55, "[60-70)": 65, "[70-80)": 75, "[80-90)": 85, "[90-100)": 95,
+# Official labels from the dataset's IDs_mapping.csv. The text model reads these labels
+# instead of bare integers; the raw IDs are kept in the cohort table.
+ADMISSION_TYPE_LABELS = {
+    1: "Emergency", 2: "Urgent", 3: "Elective", 4: "Newborn", 5: "Not Available",
+    6: "NULL", 7: "Trauma Center", 8: "Not Mapped",
+}
+ADMISSION_SOURCE_LABELS = {
+    1: "Physician Referral", 2: "Clinic Referral", 3: "HMO Referral",
+    4: "Transfer from a hospital", 5: "Transfer from a Skilled Nursing Facility (SNF)",
+    6: "Transfer from another health care facility", 7: "Emergency Room",
+    8: "Court/Law Enforcement", 9: "Not Available", 10: "Transfer from critial access hospital",
+    11: "Normal Delivery", 12: "Premature Delivery", 13: "Sick Baby", 14: "Extramural Birth",
+    15: "Not Available", 17: "NULL", 18: "Transfer From Another Home Health Agency",
+    19: "Readmission to Same Home Health Agency", 20: "Not Mapped", 21: "Unknown/Invalid",
+    22: "Transfer from hospital inpt/same fac reslt in a sep claim",
+    23: "Born inside this hospital", 24: "Born outside this hospital",
+    25: "Transfer from Ambulatory Surgery Center", 26: "Transfer from Hospice",
 }
 
+AGE_BRACKETS = [
+    "[0-10)", "[10-20)", "[20-30)", "[30-40)", "[40-50)",
+    "[50-60)", "[60-70)", "[70-80)", "[80-90)", "[90-100)",
+]
+AGE_MIDPOINT = {b: 10 * i + 5 for i, b in enumerate(AGE_BRACKETS)}
 
-def build_clinical_summary(row: pd.Series) -> str:
-    """
-    Converts observable index-admission attributes (demographics, symptoms, labs, medications,
-    utilization) into a natural clinical summary note WITHOUT leaking the target pathway name.
-    """
-    age_num = int(row["age_num"])
-    gender = str(row["gender"])
-    race = str(row["race"])
-    a1c = str(row["a1c_result"])
-    glu = str(row["max_glu_serum"])
-    los = int(row["time_in_hospital"])
-    labs = int(row["num_lab_procedures"])
-    procs = int(row["num_procedures"])
-    meds = int(row["num_medications"])
-    diags = int(row["number_diagnoses"])
-    prior_visits = int(row["prior_visits_total"])
-    insulin = str(row["insulin_status"])
-    med_change = str(row["diabetes_med_change"])
-    symptoms = str(row.get("presenting_notes", "admitted for inpatient glycemic and comorbidity evaluation"))
-
-    return (
-        f"Patient is a {age_num}-year-old {race} {gender.lower()} admitted for {los} days "
-        f"(encounter #{int(row['admission_number'])} of {int(row['total_patient_admissions'])}, "
-        f"prior hospital/outpatient visits: {prior_visits}). "
-        f"Clinical presentation: {symptoms}. "
-        f"Laboratory panel: HbA1c is {a1c}, maximum serum glucose is {glu}, "
-        f"with {labs} lab tests, {procs} clinical procedures, and {diags} active comorbid conditions. "
-        f"Pharmacotherapy: {meds} total medications; insulin regimen is {insulin} "
-        f"(therapy modification: {med_change})."
-    )
+# The 15 authentic UCI fields both models see. ``Sex`` is prepended to the agreed template
+# because the sex-swap counterfactual would otherwise be a no-op for Model B.
+TEXT_TEMPLATE = (
+    "Sex: {gender}, Age: {age}, Hospital Stay: {time_in_hospital} days, "
+    "Admission Type: {admission_type}, Source: {admission_source}, "
+    "Specialty: {medical_specialty}, Payer: {payer_code}, Labs: {num_lab_procedures}, "
+    "Medications: {num_medications}, Diagnoses count: {number_diagnoses}, "
+    "Max Glucose: {max_glu_serum}, A1C: {A1Cresult}, Insulin: {insulin}, "
+    "Med Change: {change}, Diabetes Med: {diabetesMed}."
+)
+MODEL_A_NUMERIC = [
+    "age_mid", "time_in_hospital", "num_lab_procedures", "num_medications", "number_diagnoses",
+]
+MODEL_A_CATEGORICAL = [
+    "gender", "admission_type", "admission_source", "medical_specialty", "payer_code",
+    "max_glu_serum", "A1Cresult", "insulin", "change", "diabetesMed",
+]
+EDITS = ["sex_swap", "age_shift", "hba1c_elevation"]
 
 
-def derive_presenting_notes_from_inputs(row: pd.Series, rng: np.random.Generator) -> str:
-    """
-    Generates realistic, noisy clinical presentation phrasing based on observable clinical
-    indicators and comorbidities (includes synonym variation and realistic clinical overlap).
-    """
-    pathway = str(row["current_pathway"])
-    a1c = str(row["a1c_result"])
-
-    # Synonyms so Count-KNN (exact word match) struggles with phrasing variations while semantic models group them
-    cardio_phrases = [
-        "chest tightness, exertional dyspnea, and elevated blood pressure",
-        "systolic hypertension, pedal edema, and irregular cardiac rhythm",
-        "coronary ischemia symptoms with shortness of breath on exertion",
-        "orthopnea, vascular claudication, and borderline tachycardia",
-    ]
-    renal_phrases = [
-        "elevated serum creatinine, proteinuria, and fluid retention",
-        "declining glomerular filtration, ankle swelling, and azotemia",
-        "persistent microalbuminuria with impaired kidney clearance",
-        "electrolyte imbalance, oliguria, and elevated blood urea nitrogen",
-    ]
-    eye_neuro_phrases = [
-        "blurred vision, peripheral paresthesia, and distal numbness",
-        "visual acuity decline, macular edema signs, and neuropathic pain",
-        "fundoscopic microvascular changes with burning tingling in feet",
-        "progressive視力/visual floaters and diabetic polyneuropathy symptoms",
-    ]
-    general_phrases = [
-        "uncontrolled hyperglycemia, polyuria, and generalised fatigue",
-        "routine inpatient glycemic titration and metabolic workup",
-        "episodic dizziness, polydipsia, and insulin dose adjustment",
-        "post-prandial glucose spikes with mild dehydration",
-    ]
-
-    # Introduce realistic clinical ambiguity (28% of admissions present with non-specific or overlapping symptoms)
-    roll = rng.random()
-    if roll < 0.22:
-        chosen_pool = general_phrases
-    elif roll < 0.32 and pathway in ("Cardiovascular", "Kidney_Renal"):
-        # Cardiorenal overlap (clinically common!)
-        chosen_pool = cardio_phrases if pathway == "Kidney_Renal" else renal_phrases
-    else:
-        if pathway == "Cardiovascular":
-            chosen_pool = cardio_phrases
-        elif pathway == "Kidney_Renal":
-            chosen_pool = renal_phrases
-        elif pathway == "Eye_Neurological":
-            chosen_pool = eye_neuro_phrases
-        else:
-            chosen_pool = general_phrases
-
-    phrase = str(rng.choice(chosen_pool))
-    if a1c == "Not_Measured":
-        phrase += "; sparse outpatient lab documentation prior to admission"
-    return phrase
+def log(msg: str) -> None:
+    print(msg, flush=True)
 
 
 # ---------------------------------------------------------------------------
-# 3. Dataset Loaders (Direct UCI Download / ucimlrepo / Realistic Fallback)
+# 1. Ground truth: ICD-9 -> pathway
 # ---------------------------------------------------------------------------
-def fetch_raw_uci_dataframe(cache_dir: Path) -> pd.DataFrame | None:
+def map_icd9_to_pathway(code: object) -> str:
+    """Map one ICD-9 code (UCI format, e.g. '250.41', '428', 'V57', '?') to a pathway.
+
+    Kidney / Renal      250.4x, 580-589
+    Eye / Neurological  250.5x, 250.6x, 357.x, 362.x
+    Cardiovascular      250.7x, 390-459
+    Uncomplicated/Other everything else (incl. V/E codes, missing)
+    250.x sub-codes are resolved first.
     """
-    Attempts to load the UCI Diabetes 130-US Hospitals dataset from local cache,
-    `ucimlrepo`, or direct HTTPS download from the UCI Machine Learning Repository.
-    """
-    cache_csv = cache_dir / "diabetic_data.csv"
-    if cache_csv.exists():
-        print(f"  -> Loading cached UCI Diabetes dataset from {cache_csv}...")
-        return pd.read_csv(cache_csv, low_memory=False)
+    if code is None or (isinstance(code, float) and np.isnan(code)):
+        return OTHER
+    s = str(code).strip()
+    if not s or s == "?" or s[0] in "VvEe":
+        return OTHER
+    try:
+        major = int(float(s))
+    except ValueError:
+        return OTHER
+    if major == 250:
+        sub = s.split(".", 1)[1][:1] if "." in s else ""
+        if sub == "4":
+            return KIDNEY
+        if sub in ("5", "6"):
+            return EYE_NEURO
+        if sub == "7":
+            return CARDIO
+        return OTHER
+    if 580 <= major <= 589:
+        return KIDNEY
+    if major in (357, 362):
+        return EYE_NEURO
+    if 390 <= major <= 459:
+        return CARDIO
+    return OTHER
+
+
+# ---------------------------------------------------------------------------
+# 2. Data download / loading
+# ---------------------------------------------------------------------------
+MANUAL_FETCH_HELP = f"""
+Could not obtain the UCI Diabetes 130-US dataset automatically. Fetch it manually, then rerun:
+
+  PowerShell:
+    Invoke-WebRequest -Uri "{UCI_ZIP_URL}" -OutFile shared/data_cache/uci296.zip
+    Expand-Archive shared/data_cache/uci296.zip -DestinationPath shared/data_cache/uci296
+  bash:
+    curl -L -o shared/data_cache/uci296.zip "{UCI_ZIP_URL}"
+    unzip shared/data_cache/uci296.zip -d shared/data_cache/uci296
+
+  then:  python shared/01_prepare_baseline_data.py --uci-csv shared/data_cache/uci296/<...>/diabetic_data.csv
+"""
+
+
+def _extract_csv_from_zip(zip_path: Path, target_csv: Path) -> None:
+    with zipfile.ZipFile(zip_path) as outer:
+        names = outer.namelist()
+        csv_names = [n for n in names if n.endswith("diabetic_data.csv")]
+        if csv_names:
+            with outer.open(csv_names[0]) as src, open(target_csv, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            return
+        # Some UCI mirrors nest a second zip (dataset_diabetes.zip) inside the archive.
+        inner_zips = [n for n in names if n.endswith(".zip")]
+        for inner in inner_zips:
+            inner_path = target_csv.parent / Path(inner).name
+            with outer.open(inner) as src, open(inner_path, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            try:
+                _extract_csv_from_zip(inner_path, target_csv)
+                return
+            finally:
+                inner_path.unlink(missing_ok=True)
+    raise FileNotFoundError(f"diabetic_data.csv not found inside {zip_path}")
+
+
+def download_uci(cache_dir: Path) -> Path:
+    """Download the official UCI archive (urllib), falling back to ``ucimlrepo``."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    target_csv = cache_dir / "diabetic_data.csv"
+    errors = []
+
+    zip_path = cache_dir / "uci296.zip"
+    try:
+        log(f"  downloading {UCI_ZIP_URL}")
+        req = urllib.request.Request(UCI_ZIP_URL, headers={"User-Agent": "shap-shifters/2.0"})
+        with urllib.request.urlopen(req, timeout=120) as resp, open(zip_path, "wb") as fh:
+            shutil.copyfileobj(resp, fh)
+        _extract_csv_from_zip(zip_path, target_csv)
+        log(f"  saved {target_csv}")
+        return target_csv
+    except Exception as exc:  # noqa: BLE001 - collected and re-raised below
+        errors.append(f"urllib: {exc!r}")
+    finally:
+        zip_path.unlink(missing_ok=True)
 
     try:
+        log("  trying ucimlrepo.fetch_ucirepo(id=296)")
         from ucimlrepo import fetch_ucirepo
-        ds = fetch_ucirepo(id=296)
+
+        ds = fetch_ucirepo(id=UCI_DATASET_ID)
         df = pd.concat([ds.data.ids, ds.data.features, ds.data.targets], axis=1)
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        df.to_csv(cache_csv, index=False)
-        return df
-    except Exception:
-        pass
+        # ucimlrepo parses the literal string "None" (= not measured) as NaN; restore it.
+        for col in ("max_glu_serum", "A1Cresult"):
+            df[col] = df[col].fillna("None")
+        df = df.fillna("?")
+        df.to_csv(target_csv, index=False)
+        log(f"  saved {target_csv}")
+        return target_csv
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"ucimlrepo: {exc!r}")
 
-    try:
-        import requests
-        url = "https://archive.ics.uci.edu/static/public/296/diabetes+130-us+hospitals+for+years+1999-2008.zip"
-        print(f"  -> Downloading UCI Diabetes zip directly from {url}...")
-        resp = requests.get(url, timeout=20)
-        resp.raise_for_status()
-        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-            csv_names = [n for n in zf.namelist() if n.endswith("diabetic_data.csv")]
-            if csv_names:
-                cache_dir.mkdir(parents=True, exist_ok=True)
-                with zf.open(csv_names[0]) as src, open(cache_csv, "wb") as dst:
-                    dst.write(src.read())
-                return pd.read_csv(cache_csv, low_memory=False)
-    except Exception as exc:
-        print(f"  [!] Online UCI download unavailable ({exc}).")
-    return None
+    raise RuntimeError("UCI download failed:\n  " + "\n  ".join(errors) + "\n" + MANUAL_FETCH_HELP)
 
 
-def load_uci_diabetes_cohort(max_patients: int = 800, seed: int = 42, cache_dir: Path | None = None) -> pd.DataFrame:
-    """
-    Loads the UCI Diabetes 130-US Hospitals dataset, filters to repeat-admission patients,
-    and prepares interpretable input columns + target pathway.
-    """
-    print("[1/5] Loading Diabetes longitudinal cohort...")
-    raw_df = fetch_raw_uci_dataframe(cache_dir or Path("data_cache"))
-    if raw_df is None:
-        print("  -> Using built-in realistic clinical diabetes cohort generator...")
-        return generate_synthetic_cohort(max_patients=max_patients, seed=seed)
-
-    df = raw_df.copy()
-    df["race"] = df["race"].replace("?", "Unknown").fillna("Unknown")
-    df = df[df["gender"].isin(["Male", "Female"])].copy()
-
-    if "patient_nbr" not in df.columns:
-        df["patient_nbr"] = np.arange(len(df)) // 2
-    if "encounter_id" not in df.columns:
-        df["encounter_id"] = np.arange(len(df))
-
-    df = df.sort_values(["patient_nbr", "encounter_id"]).reset_index(drop=True)
-    df["admission_number"] = df.groupby("patient_nbr").cumcount() + 1
-    df["total_patient_admissions"] = df.groupby("patient_nbr")["encounter_id"].transform("count")
-
-    repeat_df = df[df["total_patient_admissions"] >= 2].copy()
-    repeat_df["current_pathway"] = repeat_df.apply(resolve_patient_pathway, axis=1)
-    repeat_df["true_pathway"] = (
-        repeat_df.groupby("patient_nbr")["current_pathway"].shift(-1).fillna(repeat_df["current_pathway"])
+def load_uci_raw(csv_path: Path) -> pd.DataFrame:
+    # keep_default_na=False: the literal "None" in A1Cresult / max_glu_serum means
+    # "not measured" and must not become NaN. "?" is UCI's missing-value marker.
+    df = pd.read_csv(
+        csv_path,
+        na_values=["?"],
+        keep_default_na=False,
+        dtype={"diag_1": str, "diag_2": str, "diag_3": str, "payer_code": str},
+        low_memory=False,
     )
-
-    rng = np.random.default_rng(seed)
-    unique_patients = repeat_df[["patient_nbr", "true_pathway"]].drop_duplicates("patient_nbr")
-    sampled_patient_ids = []
-    # Keep natural clinical imbalance (Eye_Neurological is rarer in hospital data)
-    quotas = {
-        "Cardiovascular": int(max_patients * 0.16),
-        "Kidney_Renal": int(max_patients * 0.12),
-        "Uncomplicated_Other": int(max_patients * 0.14),
-        "Eye_Neurological": int(max_patients * 0.06),
-    }
-    for pathway, grp in unique_patients.groupby("true_pathway"):
-        n_pick = min(len(grp), quotas.get(str(pathway), 60))
-        picked = rng.choice(grp["patient_nbr"].values, size=n_pick, replace=False)
-        sampled_patient_ids.extend(picked.tolist())
-
-    cohort = repeat_df[repeat_df["patient_nbr"].isin(set(sampled_patient_ids))].copy()
-    if len(cohort) > max_patients:
-        keep_pids = cohort["patient_nbr"].unique()[: max_patients // 2]
-        cohort = cohort[cohort["patient_nbr"].isin(set(keep_pids))].copy()
-
-    cohort = cohort.reset_index(drop=True)
-
-    cohort["patient_id"] = "P" + cohort["patient_nbr"].astype(str) + "_V" + cohort["admission_number"].astype(str)
-    cohort["patient_uid"] = "P" + cohort["patient_nbr"].astype(str)
-    cohort["age_bracket"] = cohort["age"].astype(str)
-    cohort["age_num"] = cohort["age_bracket"].map(AGE_MIDPOINTS).fillna(65).astype(int)
-    cohort["a1c_result"] = cohort["A1Cresult"].fillna("None").replace({"None": "Not_Measured"})
-    cohort["max_glu_serum"] = cohort["max_glu_serum"].fillna("None").replace({"None": "Not_Measured"})
-    cohort["prior_visits_total"] = (
-        cohort["number_outpatient"].fillna(0)
-        + cohort["number_emergency"].fillna(0)
-        + cohort["number_inpatient"].fillna(0)
-    ).astype(int)
-    cohort["insulin_status"] = cohort["insulin"].fillna("No").astype(str)
-    cohort["diabetes_med_change"] = cohort["change"].fillna("No").astype(str)
-    cohort["readmitted_outcome"] = cohort["readmitted"].fillna("NO").astype(str)
-
-    cohort["record_completeness"] = (
-        (cohort["race"] != "Unknown").astype(float) * 0.34
-        + (cohort["a1c_result"] != "Not_Measured").astype(float) * 0.33
-        + (cohort["max_glu_serum"] != "Not_Measured").astype(float) * 0.33
-    ).round(2)
-
-    cohort["presenting_notes"] = [derive_presenting_notes_from_inputs(row, rng) for _, row in cohort.iterrows()]
-    cohort["clinical_summary_text"] = cohort.apply(build_clinical_summary, axis=1)
-    cohort["summary_word_count"] = cohort["clinical_summary_text"].str.split().str.len()
-
-    keep_cols = [
-        "patient_id", "patient_uid", "admission_number", "total_patient_admissions",
-        "age_num", "age_bracket", "gender", "race",
-        "a1c_result", "max_glu_serum", "time_in_hospital",
-        "num_lab_procedures", "num_procedures", "num_medications",
-        "number_diagnoses", "prior_visits_total", "insulin_status",
-        "diabetes_med_change", "record_completeness",
-        "current_pathway", "true_pathway", "readmitted_outcome",
-        "presenting_notes", "clinical_summary_text", "summary_word_count",
-    ]
-    return cohort[keep_cols]
+    required = {"encounter_id", "patient_nbr", "gender", "age", "diag_1"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"{csv_path} is not the UCI Diabetes 130-US file (missing {missing}).")
+    if len(df) != UCI_EXPECTED_ROWS:
+        log(f"  [warning] expected {UCI_EXPECTED_ROWS} rows, found {len(df)}")
+    return df
 
 
-def generate_synthetic_cohort(max_patients: int = 800, seed: int = 42) -> pd.DataFrame:
-    """
-    Generates a realistic longitudinal diabetes cohort with overlapping distributions,
-    disease progression across visits, and realistic clinical noise so Phase I & II
-    visualizations reveal authentic error patterns, subgroup biases, and confusion blocks.
-    """
-    rng = np.random.default_rng(seed)
-    pathways = ["Cardiovascular", "Kidney_Renal", "Eye_Neurological", "Uncomplicated_Other"]
-    pathway_probs = [0.35, 0.25, 0.13, 0.27]  # Eye_Neurological is rarer, mirroring hospital data
-
-    rows = []
-    n_unique_patients = max(max_patients // 2, 200)
-    idx = 0
-    for pid in range(1000, 1000 + n_unique_patients):
-        if idx >= max_patients:
-            break
-        n_visits = int(rng.choice([2, 2, 3, 4], p=[0.45, 0.25, 0.20, 0.10]))
-        sex = str(rng.choice(["Female", "Male"], p=[0.53, 0.47]))
-        race = str(rng.choice(["Caucasian", "AfricanAmerican", "Hispanic", "Asian", "Unknown"], p=[0.62, 0.21, 0.08, 0.04, 0.05]))
-        base_age = int(rng.choice([35, 45, 55, 65, 75, 85], p=[0.07, 0.13, 0.22, 0.27, 0.21, 0.10]))
-        true_pathway = str(rng.choice(pathways, p=pathway_probs))
-
-        for v in range(1, n_visits + 1):
-            if idx >= max_patients:
-                break
-            age_num = min(95, base_age + (v - 1) * 2)
-            age_bracket = f"[{(age_num // 10) * 10}-{((age_num // 10) + 1) * 10})"
-
-            # Overlapping clinical feature distributions (Cardiovascular and Kidney_Renal overlap partially)
-            if true_pathway == "Kidney_Renal":
-                a1c = str(rng.choice([">8", ">7", "Norm", "Not_Measured"], p=[0.40, 0.22, 0.16, 0.22]))
-                diags = int(np.clip(rng.normal(8.4, 2.1) + v * 0.5, 2, 16))
-                labs = int(np.clip(rng.normal(56, 15), 10, 110))
-                meds = int(np.clip(rng.normal(17 + v * 1.5, 5.5), 3, 45))
-                los = int(np.clip(rng.poisson(4.8), 1, 14))
-            elif true_pathway == "Cardiovascular":
-                a1c = str(rng.choice([">8", ">7", "Norm", "Not_Measured"], p=[0.28, 0.26, 0.20, 0.26]))
-                diags = int(np.clip(rng.normal(7.9, 2.0) + v * 0.4, 2, 16))
-                labs = int(np.clip(rng.normal(51, 15), 10, 110))
-                meds = int(np.clip(rng.normal(16 + v * 1.4, 5.0), 3, 45))
-                los = int(np.clip(rng.poisson(4.3), 1, 14))
-            elif true_pathway == "Eye_Neurological":
-                a1c = str(rng.choice([">8", ">7", "Norm", "Not_Measured"], p=[0.46, 0.24, 0.12, 0.18]))
-                diags = int(np.clip(rng.normal(6.3, 1.9) + v * 0.3, 2, 14))
-                labs = int(np.clip(rng.normal(40, 14), 8, 95))
-                meds = int(np.clip(rng.normal(13 + v * 1.2, 4.5), 2, 40))
-                los = int(np.clip(rng.poisson(3.2), 1, 14))
-            else:
-                a1c = str(rng.choice(["Norm", ">7", ">8", "Not_Measured"], p=[0.36, 0.20, 0.12, 0.32]))
-                diags = int(np.clip(rng.normal(4.8, 1.7), 1, 12))
-                labs = int(np.clip(rng.normal(33, 13), 5, 85))
-                meds = int(np.clip(rng.normal(11 + v * 1.0, 4.0), 1, 35))
-                los = int(np.clip(rng.poisson(2.7), 1, 14))
-
-            glu = str(rng.choice(["Not_Measured", "Norm", ">200", ">300"], p=[0.60, 0.16, 0.14, 0.10]))
-            procs = int(np.clip(rng.poisson(1.5 if true_pathway in ("Cardiovascular", "Kidney_Renal") else 0.8), 0, 6))
-            prior_v = int(np.clip(rng.poisson(1.2) + (v - 1), 0, 15))
-            insulin = str(rng.choice(["Steady", "Up", "Down", "No"], p=[0.30, 0.24, 0.14, 0.32]))
-            med_change = "Ch" if insulin in ("Up", "Down") else str(rng.choice(["Ch", "No"], p=[0.3, 0.7]))
-            readm = str(rng.choice(["<30", ">30", "NO"], p=[0.18, 0.34, 0.48]))
-
-            rec_comp = round(
-                (0.34 if race != "Unknown" else 0.0)
-                + (0.33 if a1c != "Not_Measured" else 0.0)
-                + (0.33 if glu != "Not_Measured" else 0.0),
-                2,
-            )
-
-            # On early admissions (V1), clinical presentation may still look uncomplicated or ambiguous
-            if v == 1 and rng.random() < 0.25:
-                curr_path = "Uncomplicated_Other"
-            else:
-                curr_path = true_pathway
-
-            row_dict = {
-                "patient_id": f"P{pid}_V{v}",
-                "patient_uid": f"P{pid}",
-                "admission_number": v,
-                "total_patient_admissions": n_visits,
-                "age_num": age_num,
-                "age_bracket": age_bracket,
-                "gender": sex,
-                "race": race,
-                "a1c_result": a1c,
-                "max_glu_serum": glu,
-                "time_in_hospital": los,
-                "num_lab_procedures": labs,
-                "num_procedures": procs,
-                "num_medications": meds,
-                "number_diagnoses": diags,
-                "prior_visits_total": prior_v,
-                "insulin_status": insulin,
-                "diabetes_med_change": med_change,
-                "record_completeness": rec_comp,
-                "current_pathway": curr_path,
-                "true_pathway": true_pathway,
-                "readmitted_outcome": readm,
-            }
-            row_dict["presenting_notes"] = derive_presenting_notes_from_inputs(pd.Series(row_dict), rng)
-            row_dict["clinical_summary_text"] = build_clinical_summary(pd.Series(row_dict))
-            row_dict["summary_word_count"] = len(row_dict["clinical_summary_text"].split())
-            rows.append(row_dict)
-            idx += 1
-
-    return pd.DataFrame(rows)
+def sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 # ---------------------------------------------------------------------------
-# 4. Feature & Embedding Extraction (Model A: Count/Feature vs. Model B: Bio_ClinicalBERT)
+# 3. Cohort
 # ---------------------------------------------------------------------------
-def build_model_a_features(df: pd.DataFrame) -> Tuple[np.ndarray, List[str], CountVectorizer, StandardScaler]:
+def serialize_record(row: pd.Series | dict) -> str:
+    return TEXT_TEMPLATE.format(**{k: row[k] for k in (
+        "gender", "age", "time_in_hospital", "admission_type", "admission_source",
+        "medical_specialty", "payer_code", "num_lab_procedures", "num_medications",
+        "number_diagnoses", "max_glu_serum", "A1Cresult", "insulin", "change", "diabetesMed",
+    )})
+
+
+def add_model_input_fields(df: pd.DataFrame) -> pd.DataFrame:
+    """Derived, input-side fields (all from the current visit V_t)."""
+    df = df.copy()
+    df["age_mid"] = df["age"].map(AGE_MIDPOINT).astype(int)
+    df["admission_type"] = df["admission_type_id"].map(ADMISSION_TYPE_LABELS).fillna("Unknown")
+    df["admission_source"] = df["admission_source_id"].map(ADMISSION_SOURCE_LABELS).fillna("Unknown")
+    df["model_text"] = [serialize_record(r) for r in df.to_dict("records")]
+    return df
+
+
+def build_cohort(raw: pd.DataFrame, limit_patients: int | None, seed: int) -> pd.DataFrame:
+    df = raw[raw["gender"].isin(["Male", "Female"])].copy()
+    for col in ("race", "medical_specialty", "payer_code"):
+        df[col] = df[col].fillna("Unknown")
+    for col in ("max_glu_serum", "A1Cresult"):
+        df[col] = df[col].replace("", "None").fillna("None")
+
+    # encounter_id is used as the time order of a patient's admissions.
+    df = df.sort_values(["patient_nbr", "encounter_id"]).reset_index(drop=True)
+    g = df.groupby("patient_nbr", sort=False)
+    df["visit_index"] = g.cumcount() + 1
+    df["n_visits_patient"] = g["encounter_id"].transform("size")
+    df = df[df["n_visits_patient"] >= 2].copy()
+
+    g = df.groupby("patient_nbr", sort=False)
+    df["next_encounter_id"] = g["encounter_id"].shift(-1)
+    df["next_diag_1"] = g["diag_1"].shift(-1)
+    df = df[df["next_encounter_id"].notna()].copy()  # drop final visit of every patient
+    df["next_encounter_id"] = df["next_encounter_id"].astype("int64")
+
+    df["current_pathway"] = df["diag_1"].map(map_icd9_to_pathway)
+    df["true_next_pathway"] = df["next_diag_1"].map(map_icd9_to_pathway)
+
+    if limit_patients:
+        rng = np.random.default_rng(seed)
+        pids = df["patient_nbr"].unique()
+        keep = rng.choice(pids, size=min(limit_patients, len(pids)), replace=False)
+        df = df[df["patient_nbr"].isin(set(keep))].copy()
+        log(f"  [debug] --limit-patients {limit_patients}: kept {len(df)} encounters")
+
+    df = add_model_input_fields(df)
+    return df.reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# 4. Representations
+# ---------------------------------------------------------------------------
+class ModelAEncoder:
+    """Transparent clinical-feature vector.
+
+    Numeric fields -> StandardScaler (unit variance). Categorical fields -> one-hot, left
+    unscaled, so every categorical field contributes exactly one unit of squared norm, the
+    same as a z-scored numeric field. (Z-scoring one-hot columns would weight rare
+    categories by ~1/sqrt(p) and let e.g. a rare specialty dominate the cosine distance.)
     """
-    Model A: Transparent Count + Clinical Feature Vectorizer.
-    Uses raw token counts (sensitive to exact wording & demographic tokens) + standardized numeric counts.
+
+    def __init__(self) -> None:
+        self.scaler = StandardScaler()
+        self.onehot = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+
+    def fit(self, df: pd.DataFrame) -> "ModelAEncoder":
+        self.scaler.fit(df[MODEL_A_NUMERIC].astype(float).values)
+        self.onehot.fit(df[MODEL_A_CATEGORICAL].astype(str).values)
+        return self
+
+    def transform(self, df: pd.DataFrame) -> np.ndarray:
+        num = self.scaler.transform(df[MODEL_A_NUMERIC].astype(float).values)
+        cat = self.onehot.transform(df[MODEL_A_CATEGORICAL].astype(str).values)
+        return np.hstack([num, cat]).astype(np.float32)
+
+    @property
+    def feature_names(self) -> list[str]:
+        cats = [
+            f"{field}={value}"
+            for field, values in zip(MODEL_A_CATEGORICAL, self.onehot.categories_)
+            for value in values
+        ]
+        return MODEL_A_NUMERIC + cats
+
+
+class BioClinicalBertEncoder:
+    """Mean-pooled last-layer Bio_ClinicalBERT embeddings.
+
+    Deterministic batching: texts are de-duplicated, sorted by token length and encoded in
+    fixed-size batches (fp32, eval mode, no dropout). On CPU the batcher additionally pins
+    the thread count and enables ``torch.use_deterministic_algorithms``. There is no
+    fallback encoder: any import / download / shape problem raises.
     """
-    vec = CountVectorizer(max_features=90, stop_words="english", ngram_range=(1, 1))
-    text_counts = vec.fit_transform(df["clinical_summary_text"]).toarray().astype(np.float32)
 
-    num_cols = [
-        "age_num", "time_in_hospital", "num_lab_procedures",
-        "num_procedures", "num_medications", "number_diagnoses", "prior_visits_total",
-    ]
-    scaler = StandardScaler()
-    num_feats = scaler.fit_transform(df[num_cols].values.astype(np.float32))
-
-    # Count vector is unweighted across all words, so common demographic/utilization numbers compete with symptoms
-    combined = np.hstack([num_feats * 0.8, text_counts * 0.6])
-    feature_names = [f"num__{c}" for c in num_cols] + [f"tok__{t}" for t in vec.get_feature_names_out()]
-    return combined, feature_names, vec, scaler
-
-
-class ClinicalSemanticEncoderFallback:
-    """
-    Multi-layer clinical representation encoder used when running in a Python kernel (e.g., Python 3.14)
-    where PyTorch/HuggingFace wheels are not installed.
-    Models how a 12-layer clinical transformer (`Bio_ClinicalBERT`) progressively transforms:
-      - Layer 4 (Early layer): Strong encoding of surface demographics (sex, race, age) & note length.
-      - Layer 8 (Middle layer): Combines clinical concepts with hospital utilization & lab patterns.
-      - Layer 12 (Final layer): Groups synonymous clinical symptom descriptions into dense 768-D concepts,
-        while retaining a realistic residual demographic/completeness bias (for Phase I & II discovery!).
-    """
-
-    def __init__(self, seed: int = 42) -> None:
-        self.seed = seed
-        self.tfidf = TfidfVectorizer(max_features=200, ngram_range=(1, 2), sublinear_tf=True)
-        self.svd = TruncatedSVD(n_components=32, random_state=seed)
-        self.num_scaler = StandardScaler()
-        self.cat_enc = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
-        self.W_l4: np.ndarray | None = None
-        self.W_l8: np.ndarray | None = None
-        self.W_l12: np.ndarray | None = None
-        self.W_cls: np.ndarray | None = None
-
-    @staticmethod
-    def _normalize_clinical_synonyms(texts: List[str]) -> List[str]:
-        """Simulates pretrained clinical language model synonymy alignment across symptom phrasings."""
-        synonym_map = {
-            "chest tightness": "cardiac_symptom",
-            "exertional dyspnea": "cardiac_symptom",
-            "systolic hypertension": "cardiac_symptom",
-            "coronary ischemia": "cardiac_symptom",
-            "irregular cardiac rhythm": "cardiac_symptom",
-            "orthopnea": "cardiac_symptom",
-            "vascular claudication": "cardiac_symptom",
-            "serum creatinine": "renal_symptom",
-            "proteinuria": "renal_symptom",
-            "glomerular filtration": "renal_symptom",
-            "azotemia": "renal_symptom",
-            "microalbuminuria": "renal_symptom",
-            "kidney clearance": "renal_symptom",
-            "oliguria": "renal_symptom",
-            "blood urea nitrogen": "renal_symptom",
-            "blurred vision": "ophthalmic_neuro_symptom",
-            "peripheral paresthesia": "ophthalmic_neuro_symptom",
-            "visual acuity": "ophthalmic_neuro_symptom",
-            "macular edema": "ophthalmic_neuro_symptom",
-            "neuropathic pain": "ophthalmic_neuro_symptom",
-            "microvascular changes": "ophthalmic_neuro_symptom",
-            "polyneuropathy": "ophthalmic_neuro_symptom",
-            "uncontrolled hyperglycemia": "metabolic_general_symptom",
-            "glycemic titration": "metabolic_general_symptom",
-            "post-prandial glucose": "metabolic_general_symptom",
-        }
-        out = []
-        for t in texts:
-            s = t.lower()
-            for phrase, concept in synonym_map.items():
-                if phrase in s:
-                    s = s + f" {concept} {concept}"
-            out.append(s)
-        return out
-
-    def fit_transform(self, df: pd.DataFrame) -> Dict[str, np.ndarray]:
-        norm_texts = self._normalize_clinical_synonyms(df["clinical_summary_text"].tolist())
-        t_mat = self.tfidf.fit_transform(norm_texts)
-        t_svd = self.svd.fit_transform(t_mat).astype(np.float32)
-
-        num_cols = ["age_num", "time_in_hospital", "num_lab_procedures", "num_medications", "number_diagnoses", "record_completeness"]
-        n_mat = self.num_scaler.fit_transform(df[num_cols].values.astype(np.float32))
-        c_mat = self.cat_enc.fit_transform(df[["gender", "race", "a1c_result", "insulin_status"]]).astype(np.float32)
-
-        return self._project_layers(t_svd, n_mat, c_mat, fit=True)
-
-    def transform(self, df: pd.DataFrame) -> Dict[str, np.ndarray]:
-        norm_texts = self._normalize_clinical_synonyms(df["clinical_summary_text"].tolist())
-        t_mat = self.tfidf.transform(norm_texts)
-        t_svd = self.svd.transform(t_mat).astype(np.float32)
-
-        num_cols = ["age_num", "time_in_hospital", "num_lab_procedures", "num_medications", "number_diagnoses", "record_completeness"]
-        n_mat = self.num_scaler.transform(df[num_cols].values.astype(np.float32))
-        c_mat = self.cat_enc.transform(df[["gender", "race", "a1c_result", "insulin_status"]]).astype(np.float32)
-
-        return self._project_layers(t_svd, n_mat, c_mat, fit=False)
-
-    def _project_layers(self, t_svd: np.ndarray, n_mat: np.ndarray, c_mat: np.ndarray, fit: bool) -> Dict[str, np.ndarray]:
-        # Layer 4: Heavily weights surface demographics (c_mat) and age/utilization (n_mat)
-        base_l4 = np.hstack([t_svd * 0.6, n_mat * 1.1, c_mat * 1.8])
-        # Layer 8: Balanced clinical text concepts and labs
-        base_l8 = np.hstack([t_svd * 1.5, n_mat * 1.0, c_mat * 1.1])
-        # Layer 12: Strong clinical concept representation, but retains a residual demographic/completeness shortcut
-        base_l12 = np.hstack([t_svd * 2.4, n_mat * 0.85, c_mat * 0.75])
-        # CLS token pooling: Slightly more sensitive to demographic/header framing than mean pooling
-        base_cls = np.hstack([t_svd * 2.0, n_mat * 0.95, c_mat * 1.25])
-
-        dim_in = base_l12.shape[1]
-        if fit or self.W_l12 is None:
-            rng = np.random.default_rng(self.seed)
-            self.W_l4 = (rng.normal(0, 1.0 / np.sqrt(dim_in), size=(dim_in, 768))).astype(np.float32)
-            self.W_l8 = (rng.normal(0, 1.0 / np.sqrt(dim_in), size=(dim_in, 768))).astype(np.float32)
-            self.W_l12 = (rng.normal(0, 1.0 / np.sqrt(dim_in), size=(dim_in, 768))).astype(np.float32)
-            self.W_cls = (rng.normal(0, 1.0 / np.sqrt(dim_in), size=(dim_in, 768))).astype(np.float32)
-
-        return {
-            "embedding_layer4_mean": np.tanh(base_l4 @ self.W_l4).astype(np.float32),
-            "embedding_layer8_mean": np.tanh(base_l8 @ self.W_l8).astype(np.float32),
-            "embedding_layer12_mean": np.tanh(base_l12 @ self.W_l12).astype(np.float32),
-            "embedding_layer12_cls": np.tanh(base_cls @ self.W_cls).astype(np.float32),
-        }
-
-
-def build_model_b_embeddings(
-    df: pd.DataFrame,
-    model_name: str = "emilyalsentzer/Bio_ClinicalBERT",
-    batch_size: int = 32,
-    fallback_encoder: ClinicalSemanticEncoderFallback | None = None,
-) -> Tuple[Dict[str, np.ndarray], ClinicalSemanticEncoderFallback | None]:
-    """
-    Model B: Extracts 768-D embeddings and intermediate transformer layer representations
-    from `emilyalsentzer/Bio_ClinicalBERT` (or uses ClinicalSemanticEncoderFallback if PyTorch
-    is not installed in the active Python environment).
-    """
-    texts = df["clinical_summary_text"].tolist()
-    if fallback_encoder is None:
+    def __init__(self, model_name: str, device: str, batch_size: int | None,
+                 max_length: int, cpu_threads: int | None, cache_dir: Path) -> None:
         try:
             import torch
             from transformers import AutoModel, AutoTokenizer
-
+        except ImportError as exc:
+            raise RuntimeError(
+                "Model B needs `torch` and `transformers` (see environment.yml). "
+                "There is deliberately no fallback encoder."
+            ) from exc
+        self.torch = torch
+        if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"[2/5] Running Model B ({model_name}) on {device.upper()} for {len(texts)} records...")
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
-            model = AutoModel.from_pretrained(model_name, output_hidden_states=True).to(device)
-            model.eval()
+        if device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("--device cuda requested but torch.cuda.is_available() is False.")
+        self.device = device
+        self.max_length = max_length
+        self.batch_size = batch_size or (256 if device == "cuda" else 32)
+        self.cache_dir = cache_dir
+        self.model_name = model_name
 
-            emb_mean_list, emb_cls_list, layer4_list, layer8_list = [], [], [], []
-            with torch.no_grad():
-                for start in range(0, len(texts), batch_size):
-                    batch_texts = texts[start : start + batch_size]
-                    enc = tokenizer(
-                        batch_texts,
-                        padding=True,
-                        truncation=True,
-                        max_length=160,
-                        return_tensors="pt",
-                    ).to(device)
-                    out = model(**enc)
-                    mask = enc["attention_mask"].unsqueeze(-1).float()
-                    last_hidden = out.last_hidden_state
+        torch.manual_seed(0)
+        if device == "cpu":
+            torch.set_num_threads(cpu_threads or max(1, (os.cpu_count() or 2) // 2))
+            torch.use_deterministic_algorithms(True)
+            self.device_name = f"cpu ({torch.get_num_threads()} threads)"
+        else:
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.backends.cudnn.allow_tf32 = False
+            self.device_name = torch.cuda.get_device_name(0)
 
-                    mean_pooled = (last_hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
-                    cls_pooled = last_hidden[:, 0, :]
+        log(f"  loading {model_name} on {self.device_name}")
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+            self.model = AutoModel.from_pretrained(model_name, local_files_only=True).to(device).eval()
+        except Exception:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.model = AutoModel.from_pretrained(model_name).to(device).eval()
+        hidden = int(self.model.config.hidden_size)
+        if hidden != MODEL_B_DIM:
+            raise RuntimeError(f"{model_name} has hidden size {hidden}, expected {MODEL_B_DIM}.")
+        self.n_truncated = 0
+        self.max_tokens_seen = 0
 
-                    hidden_states = out.hidden_states
-                    l4 = (hidden_states[4] * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
-                    l8 = (hidden_states[8] * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+    def _cache_path(self, texts: list[str]) -> Path:
+        h = hashlib.sha256()
+        h.update(f"{self.model_name}|{self.max_length}|mean|v1".encode())
+        for t in texts:
+            h.update(t.encode("utf-8"))
+            h.update(b"\x00")
+        return self.cache_dir / f"emb_{h.hexdigest()[:20]}.npy"
 
-                    emb_mean_list.append(mean_pooled.cpu().numpy())
-                    emb_cls_list.append(cls_pooled.cpu().numpy())
-                    layer4_list.append(l4.cpu().numpy())
-                    layer8_list.append(l8.cpu().numpy())
+    def encode(self, texts: list[str], desc: str) -> np.ndarray:
+        if not texts:
+            return np.zeros((0, MODEL_B_DIM), dtype=np.float32)
+        uniq, inverse = np.unique(np.asarray(texts, dtype=object), return_inverse=True)
+        uniq = [str(t) for t in uniq]
+        cache = self._cache_path(uniq)
+        if cache.exists():
+            log(f"  [{desc}] {len(texts)} texts: cached embeddings {cache.name}")
+            return np.load(cache)[inverse]
 
-            return {
-                "embedding_layer12_mean": np.vstack(emb_mean_list).astype(np.float32),
-                "embedding_layer12_cls": np.vstack(emb_cls_list).astype(np.float32),
-                "embedding_layer4_mean": np.vstack(layer4_list).astype(np.float32),
-                "embedding_layer8_mean": np.vstack(layer8_list).astype(np.float32),
-            }, None
-        except Exception as exc:
-            print(f"  [i] PyTorch/HuggingFace not active in this Python kernel ({exc}).")
-            print("  -> Using built-in 12-layer Clinical Semantic Transformer representation (768-D)...")
-            enc_fb = ClinicalSemanticEncoderFallback(seed=42)
-            return enc_fb.fit_transform(df), enc_fb
+        torch = self.torch
+        lengths = [len(ids) for ids in self.tokenizer(uniq, add_special_tokens=True)["input_ids"]]
+        self.max_tokens_seen = max(self.max_tokens_seen, max(lengths))
+        self.n_truncated += int(sum(n > self.max_length for n in lengths))
+        order = np.argsort(lengths, kind="stable")
+        out = np.zeros((len(uniq), MODEL_B_DIM), dtype=np.float32)
+
+        t0 = time.time()
+        n_batches = (len(uniq) + self.batch_size - 1) // self.batch_size
+        with torch.inference_mode():
+            for b in range(n_batches):
+                idx = order[b * self.batch_size:(b + 1) * self.batch_size]
+                enc = self.tokenizer(
+                    [uniq[i] for i in idx], padding=True, truncation=True,
+                    max_length=self.max_length, return_tensors="pt",
+                ).to(self.device)
+                hidden = self.model(**enc).last_hidden_state
+                mask = enc["attention_mask"].unsqueeze(-1).to(hidden.dtype)
+                pooled = (hidden * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
+                out[idx] = pooled.float().cpu().numpy()
+                if (b + 1) % 50 == 0 or b + 1 == n_batches:
+                    rate = (b + 1) * self.batch_size / max(time.time() - t0, 1e-6)
+                    log(f"  [{desc}] batch {b + 1}/{n_batches} ({rate:,.0f} texts/s)")
+        if not np.isfinite(out).all():
+            raise RuntimeError("Non-finite values in Model B embeddings.")
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        np.save(cache, out)
+        return out[inverse]
+
+
+# ---------------------------------------------------------------------------
+# 5. Retrieval
+# ---------------------------------------------------------------------------
+def _l2_normalize(x: np.ndarray) -> np.ndarray:
+    norms = np.linalg.norm(x, axis=1, keepdims=True)
+    return (x / np.maximum(norms, 1e-12)).astype(np.float32)
+
+
+def cosine_knn_other_patients(
+    index_x: np.ndarray, index_patient: np.ndarray,
+    query_x: np.ndarray, query_patient: np.ndarray,
+    k: int, chunk: int = 1024,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Exact cosine KNN. Neighbors of the same patient (incl. the query itself) are skipped.
+
+    Ties are broken by index position, so results are deterministic.
+    Returns (neighbor_positions [n, k], cosine_distances [n, k]).
+    """
+    max_same = int(pd.Series(index_patient).value_counts().max())
+    n_cand = min(k + max_same, len(index_x))
+    ix = _l2_normalize(index_x)
+    qx = _l2_normalize(query_x)
+    nbr = np.empty((len(qx), k), dtype=np.int64)
+    dist = np.empty((len(qx), k), dtype=np.float32)
+    for start in range(0, len(qx), chunk):
+        stop = min(start + chunk, len(qx))
+        d = 1.0 - qx[start:stop] @ ix.T
+        cand = np.argpartition(d, n_cand - 1, axis=1)[:, :n_cand]
+        cd = np.take_along_axis(d, cand, axis=1)
+        o = np.lexsort((cand, cd), axis=1)  # primary: distance, secondary: index
+        cand = np.take_along_axis(cand, o, axis=1)
+        cd = np.take_along_axis(cd, o, axis=1)
+        same = index_patient[cand] == query_patient[start:stop, None]
+        keep = np.argsort(same, axis=1, kind="stable")[:, :k]
+        if np.take_along_axis(same, keep, axis=1).any():
+            raise RuntimeError("Not enough other-patient candidates; increase n_cand.")
+        nbr[start:stop] = np.take_along_axis(cand, keep, axis=1)
+        dist[start:stop] = np.take_along_axis(cd, keep, axis=1)
+    return nbr, np.clip(dist, 0.0, 2.0)
+
+
+def vote(neighbor_labels: np.ndarray, n_classes: int) -> tuple[np.ndarray, np.ndarray]:
+    """Majority vote over [n, k] integer labels; ties go to the class seen at the best rank."""
+    n, k = neighbor_labels.shape
+    counts = np.zeros((n, n_classes), dtype=np.int64)
+    first = np.full((n, n_classes), k, dtype=np.int64)
+    rows = np.arange(n)
+    for r in range(k - 1, -1, -1):
+        lab = neighbor_labels[:, r]
+        counts[rows, lab] += 1
+        first[rows, lab] = r
+    score = counts * (k + 1) - first
+    pred = score.argmax(axis=1)
+    return pred, counts[rows, pred] / k
+
+
+def random_neighbors(patient: np.ndarray, k: int, seed: int) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    n = len(patient)
+    max_same = int(pd.Series(patient).value_counts().max())
+    out = np.empty((n, k), dtype=np.int64)
+    for i in range(n):
+        cand = rng.choice(n, size=min(n, k + max_same), replace=False)
+        cand = cand[patient[cand] != patient[i]][:k]
+        out[i] = cand
+    return out
+
+
+def summarize(y_true: np.ndarray, y_pred: np.ndarray, agreement: np.ndarray,
+              hit: np.ndarray | None) -> dict:
+    recall = {}
+    for c, name in enumerate(PATHWAYS):
+        m = y_true == c
+        recall[name] = round(float((y_pred[m] == c).mean()), 4) if m.any() else None
+    agree_by = {
+        name: round(float(agreement[y_true == c].mean()), 4) if (y_true == c).any() else None
+        for c, name in enumerate(PATHWAYS)
+    }
+    out = {
+        "accuracy": round(float((y_true == y_pred).mean()), 4),
+        "macro_recall": round(float(np.mean([v for v in recall.values() if v is not None])), 4),
+        "per_pathway_recall": recall,
+        "mean_agreement": round(float(agreement.mean()), 4),
+        "per_pathway_mean_agreement": agree_by,
+        "predicted_pathway_counts": {
+            name: int((y_pred == c).sum()) for c, name in enumerate(PATHWAYS)
+        },
+    }
+    if hit is not None:
+        out["hit_at_k"] = round(float(hit.mean()), 4)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 6. Counterfactual edits (query side only)
+# ---------------------------------------------------------------------------
+def apply_edit(df: pd.DataFrame, edit: str) -> tuple[pd.DataFrame, np.ndarray]:
+    """Return (edited copy, mask of rows where the edit actually changes the record)."""
+    e = df.copy()
+    if edit == "sex_swap":
+        e["gender"] = e["gender"].map({"Male": "Female", "Female": "Male"})
+        applied = np.ones(len(e), dtype=bool)
+    elif edit == "age_shift":
+        pos = e["age"].map({b: i for i, b in enumerate(AGE_BRACKETS)}).to_numpy()
+        new_pos = np.minimum(pos + 2, len(AGE_BRACKETS) - 1)  # +20 years, capped at [90-100)
+        e["age"] = [AGE_BRACKETS[p] for p in new_pos]
+        applied = new_pos != pos
+    elif edit == "hba1c_elevation":
+        applied = e["A1Cresult"].isin(["None", "Norm"]).to_numpy()
+        e.loc[applied, "A1Cresult"] = ">8"
     else:
-        return fallback_encoder.transform(df), fallback_encoder
+        raise ValueError(edit)
+    e = add_model_input_fields(e.drop(columns=["age_mid", "admission_type",
+                                               "admission_source", "model_text"]))
+    return e, applied
+
+
+def neighbor_flips(orig: np.ndarray, new: np.ndarray) -> np.ndarray:
+    k = orig.shape[1]
+    overlap = (orig[:, :, None] == new[:, None, :]).any(axis=2).sum(axis=1)
+    return k - overlap
 
 
 # ---------------------------------------------------------------------------
-# 5. k-Nearest-Neighbor Retrieval & Counterfactual Perturbation Evaluation
+# 7. Projection
 # ---------------------------------------------------------------------------
-def evaluate_knn_retrieval(
-    features: np.ndarray,
-    df: pd.DataFrame,
-    k: int = 10,
-) -> Tuple[pd.DataFrame, List[Dict], NearestNeighbors]:
-    """
-    Runs k-Nearest-Neighbor search (cosine distance), excluding self-matches and other visits
-    of the same patient (`patient_uid`), and computes black-box output metrics per patient.
-    """
-    nn = NearestNeighbors(n_neighbors=min(k + 8, len(df)), metric="cosine")
-    nn.fit(features)
-    distances, indices = nn.kneighbors(features)
-
-    true_pathways = df["true_pathway"].values
-    sexes = df["gender"].values
-    races = df["race"].values
-    pids = df["patient_id"].values
-    puids = df["patient_uid"].values
-
-    records = []
-    neighbor_details = []
-
-    for i in range(len(df)):
-        chosen_idx = []
-        chosen_dist = []
-        for idx_cand, dist_cand in zip(indices[i], distances[i]):
-            if idx_cand == i or puids[idx_cand] == puids[i]:
-                continue
-            chosen_idx.append(int(idx_cand))
-            chosen_dist.append(float(dist_cand))
-            if len(chosen_idx) == k:
-                break
-
-        neigh_pathways = [true_pathways[j] for j in chosen_idx]
-        neigh_sexes = [sexes[j] for j in chosen_idx]
-        neigh_races = [races[j] for j in chosen_idx]
-
-        vote_counts = Counter(neigh_pathways)
-        pred_pathway, top_vote_count = vote_counts.most_common(1)[0]
-        agreement = sum(1 for p in neigh_pathways if p == true_pathways[i]) / float(k)
-        majority_confidence = top_vote_count / float(k)
-        same_sex_ratio = sum(1 for s in neigh_sexes if s == sexes[i]) / float(k)
-        same_race_ratio = sum(1 for r in neigh_races if r == races[i]) / float(k)
-
-        records.append({
-            "pred_pathway": pred_pathway,
-            "neighbor_agreement": round(agreement, 3),
-            "majority_confidence": round(majority_confidence, 3),
-            "is_correct": bool(pred_pathway == true_pathways[i]),
-            "mean_neighbor_cosine_dist": round(float(np.mean(chosen_dist)), 4),
-            "same_sex_neighbor_ratio": round(same_sex_ratio, 3),
-            "same_race_neighbor_ratio": round(same_race_ratio, 3),
-            "neighbor_indices": chosen_idx,
-        })
-
-        neighbor_details.append({
-            "query_patient_id": str(pids[i]),
-            "query_true_pathway": str(true_pathways[i]),
-            "neighbors": [
-                {
-                    "neighbor_patient_id": str(pids[j]),
-                    "pathway": str(true_pathways[j]),
-                    "cosine_distance": round(d, 4),
-                    "gender": str(sexes[j]),
-                    "race": str(races[j]),
-                    "age_num": int(df.iloc[j]["age_num"]),
-                    "a1c_result": str(df.iloc[j]["a1c_result"]),
-                }
-                for j, d in zip(chosen_idx, chosen_dist)
-            ],
-        })
-
-    return pd.DataFrame(records), neighbor_details, nn
-
-
-def compute_perturbation_flips(
-    df: pd.DataFrame,
-    vec_a: CountVectorizer,
-    scaler_a: StandardScaler,
-    nn_a: NearestNeighbors,
-    orig_neighbors_a: List[List[int]],
-    nn_b: NearestNeighbors,
-    orig_neighbors_b: List[List[int]],
-    fallback_encoder_b: ClinicalSemanticEncoderFallback | None,
-    model_name: str = "emilyalsentzer/Bio_ClinicalBERT",
-    k: int = 10,
-) -> pd.DataFrame:
-    """
-    Creates 3 synthetic counterfactual / perturbed copies of each patient record:
-      1. Demographic Counterfactual: Flip Sex (Male <-> Female)
-      2. Demographic Counterfactual: Shift Age (+20 years)
-      3. Clinical Perturbation: Change HbA1c ('Norm' <-> '>8' plus hyperglycemic note update)
-    Returns the number of k=10 neighbors that flip (0 to 10) for Model A and Model B.
-    """
-    print("[4/5] Running counterfactual & perturbation sensitivity analysis (Neighbor Flips)...")
-
-    df_sex = df.copy()
-    df_sex["gender"] = df_sex["gender"].map({"Male": "Female", "Female": "Male"}).fillna("Female")
-    df_sex["clinical_summary_text"] = df_sex.apply(build_clinical_summary, axis=1)
-
-    df_age = df.copy()
-    df_age["age_num"] = (df_age["age_num"] + 20).clip(upper=95)
-    df_age["clinical_summary_text"] = df_age.apply(build_clinical_summary, axis=1)
-
-    df_a1c = df.copy()
-    df_a1c["a1c_result"] = np.where(df_a1c["a1c_result"] == ">8", "Norm", ">8")
-    df_a1c["num_lab_procedures"] = (df_a1c["num_lab_procedures"] + 15).clip(upper=110)
-    df_a1c["clinical_summary_text"] = df_a1c.apply(build_clinical_summary, axis=1)
-
-    num_cols = [
-        "age_num", "time_in_hospital", "num_lab_procedures",
-        "num_procedures", "num_medications", "number_diagnoses", "prior_visits_total",
-    ]
-
-    def encode_model_a(sub_df: pd.DataFrame) -> np.ndarray:
-        t_counts = vec_a.transform(sub_df["clinical_summary_text"]).toarray().astype(np.float32)
-        n_feats = scaler_a.transform(sub_df[num_cols].values.astype(np.float32))
-        return np.hstack([n_feats * 0.8, t_counts * 0.6])
-
-    def count_flips(nn_model: NearestNeighbors, new_feats: np.ndarray, orig_neigh_lists: List[List[int]]) -> List[int]:
-        _, indices = nn_model.kneighbors(new_feats)
-        puids = df["patient_uid"].values
-        flips = []
-        for i in range(len(df)):
-            chosen = []
-            for idx_cand in indices[i]:
-                if idx_cand == i or puids[idx_cand] == puids[i]:
-                    continue
-                chosen.append(int(idx_cand))
-                if len(chosen) == k:
-                    break
-            overlap = len(set(orig_neigh_lists[i]).intersection(set(chosen)))
-            flips.append(k - overlap)
-        return flips
-
-    flips_sex_a = count_flips(nn_a, encode_model_a(df_sex), orig_neighbors_a)
-    flips_age_a = count_flips(nn_a, encode_model_a(df_age), orig_neighbors_a)
-    flips_a1c_a = count_flips(nn_a, encode_model_a(df_a1c), orig_neighbors_a)
-
-    emb_sex_b, _ = build_model_b_embeddings(df_sex, model_name=model_name, fallback_encoder=fallback_encoder_b)
-    emb_age_b, _ = build_model_b_embeddings(df_age, model_name=model_name, fallback_encoder=fallback_encoder_b)
-    emb_a1c_b, _ = build_model_b_embeddings(df_a1c, model_name=model_name, fallback_encoder=fallback_encoder_b)
-
-    flips_sex_b = count_flips(nn_b, emb_sex_b["embedding_layer12_mean"], orig_neighbors_b)
-    flips_age_b = count_flips(nn_b, emb_age_b["embedding_layer12_mean"], orig_neighbors_b)
-    flips_a1c_b = count_flips(nn_b, emb_a1c_b["embedding_layer12_mean"], orig_neighbors_b)
-
-    return pd.DataFrame({
-        "flip_sex_swap_modelA": flips_sex_a,
-        "flip_age_shift_modelA": flips_age_a,
-        "flip_hba1c_pert_modelA": flips_a1c_a,
-        "flip_sex_swap_modelB": flips_sex_b,
-        "flip_age_shift_modelB": flips_age_b,
-        "flip_hba1c_pert_modelB": flips_a1c_b,
-    })
-
-
-# ---------------------------------------------------------------------------
-# 6. Main Pipeline Execution
-# ---------------------------------------------------------------------------
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Prepare Phase I & Phase II baseline data for Patient-Similarity.")
-    parser.add_argument("--dataset", choices=["uci_diabetes", "synthetic_demo"], default="uci_diabetes")
-    parser.add_argument("--max-patients", type=int, default=800, help="Max admission records to include in cohort.")
-    parser.add_argument("--k", type=int, default=10, help="Number of nearest neighbors (k).")
-    parser.add_argument("--model-name", type=str, default="emilyalsentzer/Bio_ClinicalBERT")
-    args = parser.parse_args()
-
-    base_dir = Path(__file__).resolve().parent
-    out_dir = base_dir / "outputs"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    # 1. Load cohort
-    if args.dataset == "uci_diabetes":
-        df = load_uci_diabetes_cohort(max_patients=args.max_patients, cache_dir=base_dir / "data_cache")
-    else:
-        df = generate_synthetic_cohort(max_patients=args.max_patients)
-
-    print(f"  -> Cohort ready: {len(df)} admission records across {df['patient_uid'].nunique()} unique patients.")
-    print("  -> Pathway distribution:\n", df["true_pathway"].value_counts().to_string())
-
-    # 2. Build representations for Model A (Count/Feature) and Model B (Bio_ClinicalBERT)
-    print("[2/5] Computing Model A (Count/Clinical Feature) representations...")
-    feats_a, feat_names_a, vec_a, scaler_a = build_model_a_features(df)
-
-    internals_b, fb_encoder = build_model_b_embeddings(
-        df=df,
-        model_name=args.model_name,
-    )
-    feats_b = internals_b["embedding_layer12_mean"]
-
-    # 3. Run k=10 Nearest-Neighbor retrieval for both models
-    print(f"[3/5] Running k={args.k} Nearest-Neighbor retrieval for Model A & Model B...")
-    res_a, details_a, nn_a = evaluate_knn_retrieval(feats_a, df, k=args.k)
-    res_b, details_b, nn_b = evaluate_knn_retrieval(feats_b, df, k=args.k)
-
-    overlaps = []
-    for na, nb in zip(res_a["neighbor_indices"], res_b["neighbor_indices"]):
-        overlaps.append(round(len(set(na).intersection(set(nb))) / float(args.k), 3))
-
-    # 4. Run Counterfactual & Perturbation sensitivity ("Neighbor Flip")
-    flips_df = compute_perturbation_flips(
-        df=df,
-        vec_a=vec_a,
-        scaler_a=scaler_a,
-        nn_a=nn_a,
-        orig_neighbors_a=res_a["neighbor_indices"].tolist(),
-        nn_b=nn_b,
-        orig_neighbors_b=res_b["neighbor_indices"].tolist(),
-        fallback_encoder_b=fb_encoder,
-        model_name=args.model_name,
-        k=args.k,
-    )
-
-    # 5. Assemble strictly Black-Box Phase I Table (Inputs + Outputs ONLY)
-    print("[5/5] Saving Phase I Black-Box I/O table and Phase II internals...")
-    phase1_df = df.copy()
-
-    for col in [
-        "pred_pathway", "neighbor_agreement", "majority_confidence",
-        "is_correct", "mean_neighbor_cosine_dist",
-        "same_sex_neighbor_ratio", "same_race_neighbor_ratio",
-    ]:
-        phase1_df[f"modelA_{col}"] = res_a[col]
-        phase1_df[f"modelB_{col}"] = res_b[col]
-
-    phase1_df["modelA_B_neighbor_overlap"] = overlaps
-    phase1_df["modelB_minus_modelA_agreement"] = (
-        phase1_df["modelB_neighbor_agreement"] - phase1_df["modelA_neighbor_agreement"]
-    ).round(3)
-
-    phase1_df = pd.concat([phase1_df, flips_df], axis=1)
-
-    csv_path = out_dir / "phase1_blackbox_io.csv"
-    phase1_df.to_csv(csv_path, index=False)
+def umap_2d(x: np.ndarray, seed: int, n_neighbors: int) -> np.ndarray:
     try:
-        phase1_df.to_parquet(out_dir / "phase1_blackbox_io.parquet", index=False)
-    except Exception:
-        pass
+        import umap
+    except ImportError as exc:
+        raise RuntimeError("umap-learn is required (see environment.yml).") from exc
+    reducer = umap.UMAP(n_components=2, n_neighbors=n_neighbors, min_dist=0.1,
+                        metric="cosine", random_state=seed)
+    return reducer.fit_transform(x).astype(np.float32)
 
-    neighbors_json_path = out_dir / "phase1_neighbors_detail.json"
-    with open(neighbors_json_path, "w", encoding="utf-8") as fp:
-        json.dump({"modelA": details_a, "modelB": details_b}, fp, indent=2)
 
-    npz_path = out_dir / "phase2_model_internals.npz"
+# ---------------------------------------------------------------------------
+# 8. Export
+# ---------------------------------------------------------------------------
+def write_table(df: pd.DataFrame, out_dir: Path, name: str, list_cols: list[str]) -> None:
+    df.to_parquet(out_dir / f"{name}.parquet", index=False)
+    csv = df.copy()
+    for col in list_cols:
+        csv[col] = csv[col].map(lambda v: json.dumps([x.item() if hasattr(x, "item") else x
+                                                       for x in v]))
+    csv.to_csv(out_dir / f"{name}.csv", index=False)
+    log(f"  wrote {name}.parquet / .csv ({len(df):,} rows, {df.shape[1]} columns)")
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--k", type=int, default=10)
+    p.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto")
+    p.add_argument("--batch-size", type=int, default=None, help="default: 256 on GPU, 32 on CPU")
+    p.add_argument("--cpu-threads", type=int, default=None)
+    p.add_argument("--max-length", type=int, default=128, help="token limit for Model B")
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--umap-neighbors", type=int, default=30)
+    p.add_argument("--model-name", default=MODEL_B_NAME)
+    p.add_argument("--uci-csv", type=Path, default=None, help="use a manually downloaded diabetic_data.csv")
+    p.add_argument("--download-only", action="store_true")
+    p.add_argument("--limit-patients", type=int, default=None,
+                   help="DEBUG ONLY: random subset of patients for a quick smoke test")
+    args = p.parse_args()
+
+    t_start = time.time()
+    base = Path(__file__).resolve().parent
+    cache_dir = base / "data_cache"
+    out_dir = base / "data"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    k = args.k
+
+    # 1. Data ---------------------------------------------------------------------------
+    log("[1/7] UCI Diabetes 130-US Hospitals (ID 296)")
+    csv_path = args.uci_csv or cache_dir / "diabetic_data.csv"
+    if not csv_path.exists():
+        if args.uci_csv:
+            raise FileNotFoundError(csv_path)
+        csv_path = download_uci(cache_dir)
+    log(f"  using {csv_path}")
+    if args.download_only:
+        return
+    raw = load_uci_raw(csv_path)
+    log(f"  raw: {len(raw):,} encounters, {raw['patient_nbr'].nunique():,} patients")
+
+    # 2. Cohort -------------------------------------------------------------------------
+    log("[2/7] Repeat-admission cohort, label = next admission diag_1 pathway")
+    cohort = build_cohort(raw, args.limit_patients, args.seed)
+    pid = cohort["patient_nbr"].to_numpy()
+    y = cohort["true_next_pathway"].map({c: i for i, c in enumerate(PATHWAYS)}).to_numpy()
+    class_counts = {c: int((y == i).sum()) for i, c in enumerate(PATHWAYS)}
+    log(f"  {len(cohort):,} query encounters, {cohort['patient_nbr'].nunique():,} patients")
+    for c, n in class_counts.items():
+        log(f"    {c:<24} {n:>7,}  ({n / len(cohort):.1%})")
+
+    # 3. Representations ----------------------------------------------------------------
+    log("[3/7] Model A: StandardScaler(numeric) + one-hot(categorical)")
+    enc_a = ModelAEncoder().fit(cohort)
+    xa = enc_a.transform(cohort)
+    log(f"  Model A matrix {xa.shape}")
+
+    log(f"[4/7] Model B: {args.model_name}, mean-pooled last layer")
+    enc_b = BioClinicalBertEncoder(args.model_name, args.device, args.batch_size,
+                                   args.max_length, args.cpu_threads, cache_dir / "embeddings")
+    xb = enc_b.encode(cohort["model_text"].tolist(), "original")
+    log(f"  Model B matrix {xb.shape}; longest text {enc_b.max_tokens_seen} tokens, "
+        f"{enc_b.n_truncated} truncated at {args.max_length}")
+
+    # 4. Retrieval ----------------------------------------------------------------------
+    log(f"[5/7] Cosine KNN (k={k}, other patients only) + baselines")
+    nbr_a, dist_a = cosine_knn_other_patients(xa, pid, xa, pid, k)
+    nbr_b, dist_b = cosine_knn_other_patients(xb, pid, xb, pid, k)
+    nbr_r = random_neighbors(pid, k, args.seed)
+
+    results = {}
+    for name, nbr in (("model_a", nbr_a), ("model_b", nbr_b), ("random", nbr_r)):
+        labs = y[nbr]
+        pred, share = vote(labs, len(PATHWAYS))
+        results[name] = dict(
+            nbr=nbr, pred=pred, share=share,
+            agreement=(labs == y[:, None]).mean(axis=1),
+            hit=(labs == y[:, None]).any(axis=1),
+        )
+    majority_class = int(np.bincount(y, minlength=len(PATHWAYS)).argmax())
+    pred_major = np.full(len(y), majority_class)
+
+    enc_ids = cohort["encounter_id"].to_numpy()
+    to_ids = lambda m: [enc_ids[row].tolist() for row in m]  # noqa: E731
+    overlap_ab = (nbr_a[:, :, None] == nbr_b[:, None, :]).any(axis=2).sum(axis=1) / k
+    retrieval = pd.DataFrame({
+        "encounter_id": enc_ids,
+        "patient_nbr": pid,
+        "true_next_pathway": cohort["true_next_pathway"].to_numpy(),
+        "model_a_neighbors": to_ids(nbr_a),
+        "model_a_distances": [np.round(r, 5).tolist() for r in dist_a],
+        "model_a_agreement": results["model_a"]["agreement"],
+        "model_a_pred_pathway": [PATHWAYS[i] for i in results["model_a"]["pred"]],
+        "model_a_vote_share": results["model_a"]["share"],
+        "model_a_correct": results["model_a"]["pred"] == y,
+        "model_b_neighbors": to_ids(nbr_b),
+        "model_b_distances": [np.round(r, 5).tolist() for r in dist_b],
+        "model_b_agreement": results["model_b"]["agreement"],
+        "model_b_pred_pathway": [PATHWAYS[i] for i in results["model_b"]["pred"]],
+        "model_b_vote_share": results["model_b"]["share"],
+        "model_b_correct": results["model_b"]["pred"] == y,
+        "agreement_disparity_b_minus_a": results["model_b"]["agreement"] - results["model_a"]["agreement"],
+        "ab_neighbor_overlap": overlap_ab,
+        "random_neighbors": to_ids(nbr_r),
+        "random_agreement": results["random"]["agreement"],
+        "random_pred_pathway": [PATHWAYS[i] for i in results["random"]["pred"]],
+        "majority_pred_pathway": PATHWAYS[majority_class],
+    })
+    for name in ("model_a", "model_b"):
+        log(f"  {name}: accuracy {(results[name]['pred'] == y).mean():.3f}, "
+            f"mean agreement {results[name]['agreement'].mean():.3f}")
+    log(f"  majority ({PATHWAYS[majority_class]}): accuracy {(pred_major == y).mean():.3f}")
+    log(f"  random neighbors: mean agreement {results['random']['agreement'].mean():.3f}")
+
+    # 5. Counterfactuals ------------------------------------------------------------------
+    log("[6/7] Counterfactual neighbor flips (query edited, index unchanged)")
+    flips = pd.DataFrame({"encounter_id": enc_ids, "patient_nbr": pid})
+    flip_summary = {"model_a": {}, "model_b": {}, "n_applicable": {}}
+    for edit in EDITS:
+        edited, applied = apply_edit(cohort, edit)
+        flips[f"{edit}_applied"] = applied
+        flip_summary["n_applicable"][edit] = int(applied.sum())
+        rows = np.flatnonzero(applied)
+        sub = edited.iloc[rows]
+        feats = {
+            "model_a": (enc_a.transform(sub), xa, nbr_a, results["model_a"]["pred"]),
+            "model_b": (enc_b.encode(sub["model_text"].tolist(), edit), xb, nbr_b,
+                        results["model_b"]["pred"]),
+        }
+        for model, (qx, ix, orig_nbr, orig_pred) in feats.items():
+            new_nbr, _ = cosine_knn_other_patients(ix, pid, qx, pid[rows], k)
+            f = np.full(len(cohort), np.nan)
+            f[rows] = neighbor_flips(orig_nbr[rows], new_nbr)
+            new_pred, _ = vote(y[new_nbr], len(PATHWAYS))
+            changed = pd.array([pd.NA] * len(cohort), dtype="boolean")
+            changed[rows] = new_pred != orig_pred[rows]
+            flips[f"{model}_flips_{edit}"] = pd.array(f, dtype="Int64")
+            flips[f"{model}_pred_changed_{edit}"] = changed
+            flip_summary[model][edit] = round(float(np.nanmean(f)), 4)
+            log(f"  {model} {edit:<16} mean flips {np.nanmean(f):.2f} / {k} "
+                f"(n={len(rows):,}), prediction changed {np.mean(new_pred != orig_pred[rows]):.1%}")
+
+    # 6. Projection ---------------------------------------------------------------------
+    log("[7/7] UMAP of input features + export")
+    xy = umap_2d(xa, args.seed, args.umap_neighbors)
+    cohort["umap_x"] = xy[:, 0]
+    cohort["umap_y"] = xy[:, 1]
+
+    lead = ["encounter_id", "patient_nbr", "visit_index", "n_visits_patient", "next_encounter_id"]
+    tail = ["admission_type", "admission_source", "age_mid", "current_pathway", "next_diag_1",
+            "true_next_pathway", "model_text", "umap_x", "umap_y"]
+    raw_cols = [c for c in cohort.columns if c not in lead + tail]
+    cohort_out = cohort[lead + raw_cols + tail]
+
+    write_table(cohort_out, out_dir, "cohort_encounters", [])
+    write_table(retrieval, out_dir, "retrieval_results",
+                ["model_a_neighbors", "model_a_distances", "model_b_neighbors",
+                 "model_b_distances", "random_neighbors"])
+    write_table(flips, out_dir, "counterfactual_flips", [])
+
+    import sklearn
+    import torch
+    import transformers
+
+    shares = np.bincount(y, minlength=len(PATHWAYS)) / len(y)
+    metrics = {
+        "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "script_version": SCRIPT_VERSION,
+        "runtime_seconds": round(time.time() - t_start, 1),
+        "data_source": {
+            "name": "UCI Diabetes 130-US Hospitals for Years 1999-2008",
+            "uci_id": UCI_DATASET_ID,
+            "url": UCI_ZIP_URL,
+            "raw_rows": int(len(raw)),
+            "raw_patients": int(raw["patient_nbr"].nunique()),
+            "csv_sha256": sha256_of(csv_path),
+            "debug_limit_patients": args.limit_patients,
+        },
+        "cohort": {
+            "definition": "patients with >= 2 encounters; final visit dropped; label = pathway "
+                          "of next admission diag_1; visits ordered by encounter_id",
+            "n_encounters": int(len(cohort)),
+            "n_patients": int(cohort["patient_nbr"].nunique()),
+            "class_counts": class_counts,
+            "class_share": {c: round(float(s), 4) for c, s in zip(PATHWAYS, shares)},
+        },
+        "config": {
+            "k": k,
+            "seed": args.seed,
+            "neighbor_rule": "cosine distance; neighbors from other patients only",
+            "vote_tie_break": "class of the highest-ranked neighbor among tied classes",
+            "text_template": TEXT_TEMPLATE,
+            "model_a": {
+                "numeric_standardized": MODEL_A_NUMERIC,
+                "categorical_one_hot": MODEL_A_CATEGORICAL,
+                "n_features": int(xa.shape[1]),
+            },
+            "model_b": {
+                "name": args.model_name,
+                "pooling": "attention-masked mean of last hidden layer",
+                "embedding_dim": int(xb.shape[1]),
+                "max_length": args.max_length,
+                "longest_text_tokens": int(enc_b.max_tokens_seen),
+                "n_truncated_texts": int(enc_b.n_truncated),
+                "device": enc_b.device_name,
+                "batch_size": enc_b.batch_size,
+            },
+            "umap": {"input": "Model A feature matrix (input features only)", "metric": "cosine",
+                     "n_neighbors": args.umap_neighbors, "min_dist": 0.1, "random_state": args.seed},
+            "edits": {
+                "sex_swap": "Male <-> Female (all encounters)",
+                "age_shift": "+20 years = +2 age brackets, capped at [90-100); "
+                             "not applicable to [90-100)",
+                "hba1c_elevation": "A1Cresult None/Norm -> '>8'; not applicable to '>7'/'>8'",
+            },
+        },
+        "models": {
+            "model_a": summarize(y, results["model_a"]["pred"], results["model_a"]["agreement"],
+                                 results["model_a"]["hit"]),
+            "model_b": summarize(y, results["model_b"]["pred"], results["model_b"]["agreement"],
+                                 results["model_b"]["hit"]),
+            "majority_baseline": {
+                **summarize(y, pred_major, (pred_major == y).astype(float), None),
+                "majority_class": PATHWAYS[majority_class],
+            },
+            "random_neighbor_baseline": {
+                **summarize(y, results["random"]["pred"], results["random"]["agreement"],
+                            results["random"]["hit"]),
+                "expected_agreement_sum_p_squared": round(float((shares ** 2).sum()), 4),
+            },
+        },
+        "model_ab_mean_neighbor_overlap": round(float(overlap_ab.mean()), 4),
+        "counterfactual_mean_flips": flip_summary,
+        "environment": {
+            "python": platform.python_version(),
+            "numpy": np.__version__,
+            "pandas": pd.__version__,
+            "scikit_learn": sklearn.__version__,
+            "torch": torch.__version__,
+            "transformers": transformers.__version__,
+        },
+    }
+    with open(out_dir / "baseline_metrics.json", "w", encoding="utf-8") as fh:
+        json.dump(metrics, fh, indent=2)
+    log("  wrote baseline_metrics.json")
+
     np.savez_compressed(
-        npz_path,
-        patient_ids=df["patient_id"].values,
-        modelA_count_features=feats_a,
-        modelA_feature_names=np.array(feat_names_a),
-        modelB_layer12_mean=internals_b["embedding_layer12_mean"],
-        modelB_layer12_cls=internals_b["embedding_layer12_cls"],
-        modelB_layer4_mean=internals_b["embedding_layer4_mean"],
-        modelB_layer8_mean=internals_b["embedding_layer8_mean"],
+        cache_dir / "phase2_model_internals.npz",
+        encounter_id=enc_ids,
+        model_a_features=xa,
+        model_a_feature_names=np.array(enc_a.feature_names),
+        model_b_embeddings=xb,
     )
-
-    print("\n======================================================================")
-    print("SUCCESS! Baseline data prepared:")
-    print(f"  1. Phase I Black-Box I/O Table : {csv_path}")
-    print(f"  2. Phase I Neighbor Drill-Down : {neighbors_json_path}")
-    print(f"  3. Phase II Model Internals    : {npz_path} (Keep closed until Phase II!)")
-    print("----------------------------------------------------------------------")
-    print(f"  Model A (Count KNN) Accuracy   : {phase1_df['modelA_is_correct'].mean():.1%}")
-    print(f"  Model B (Clinical Emb KNN) Acc : {phase1_df['modelB_is_correct'].mean():.1%}")
-    print(f"  Mean Neighbor Agreement (A / B): {phase1_df['modelA_neighbor_agreement'].mean():.3f} / {phase1_df['modelB_neighbor_agreement'].mean():.3f}")
-    print("======================================================================")
+    log("  wrote data_cache/phase2_model_internals.npz (Phase II only, not committed)")
+    log(f"Done in {time.time() - t_start:,.0f} s.")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:  # make the failure explicit, never silently degrade
+        print(f"\n[FAILED] {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        raise

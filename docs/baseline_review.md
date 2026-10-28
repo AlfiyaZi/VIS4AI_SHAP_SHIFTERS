@@ -39,7 +39,7 @@ Reviewed from the overview figure of `02_phase1_shared_baseline.ipynb` (2026-10-
 
 - **Not a performance report.** Accuracy and confusion matrices are a starting point only; each pattern needs a follow-up question (what distinguishes the failing region, are there sub-groups that behave differently?).
 - **Two pairs, two pipelines.** The shared baseline was LLM-generated, so it belongs to the AI-aided pair's Phase I record. The human-only pair needs its own code for the midpoint, starting from the agreed common direction, not from a copy of this notebook.
-- **Ambition counts in grading.** Moving from MIMIC-IV + CLMBR-T-base to UCI + serialized-text Bio_ClinicalBERT is simpler, so depth has to come from the analysis: the leakage-free sex-sensitivity result, text-wording sensitivity of Model B, and Phase II explanations that compare at least two techniques per pair (e.g. SHAP on Model A distances, probing / UMAP of Model B embeddings, attention).
+- **Ambition counts in grading.** The evaluation uses the full UCI Diabetes 130-US dataset with Bio_ClinicalBERT text embeddings, so depth has to come from the analysis: the leakage-free demographic sensitivity results, clinical feature sensitivity vs. demographic shortcuts, and Phase II explanations that compare at least two techniques per pair (e.g. SHAP on Model A distances, probing / UMAP of Model B embeddings, attention).
 
 ## Process
 
