@@ -19,3 +19,7 @@ venv/
 # Pipeline outputs and downloaded data
 outputs/
 data_cache/
+
+# Local knowledge base for Claude (not shared)
+CLAUDE.md
+docs/knowledge_base.md

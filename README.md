@@ -1,54 +1,83 @@
 # VIS4AI_SHAP_SHIFTERS
 
-Group project for **AI and Visualization Lab WS26** (JKU Linz, Visual Data Science Lab).
+Team **SHAP Shifters**, AI and Visualization Lab WS26 (JKU Linz, Visual Data Science Lab).
 
-**Topic:** Explaining patient-similarity models. Given a diabetes patient, a k-nearest-neighbor model (k = 10) returns the most similar patients; a good neighbor set shares the patient's later complication pathway (kidney, cardiovascular, eye/neuro, or none).
+## Task and model
+
+**Task:** patient-similarity retrieval for clinical-trial cohort matching. Given a diabetes admission, a k-nearest-neighbor model (k = 10) returns the most similar patients. A neighbor set is good when it shares the patient's later complication pathway (kidney, cardiovascular, eye/neuro, or none).
 
 | | Model | Representation |
 |---|---|---|
-| A | Count / clinical-feature KNN | Vector of diagnosis, medication and lab features plus age |
-| B | Bio_ClinicalBERT KNN (optional: MedCPT) | 768-dim embedding of each record serialized as text |
+| A | Count / clinical-feature KNN | Diagnosis, medication and lab features plus age |
+| B | [Bio_ClinicalBERT](https://huggingface.co/emilyalsentzer/Bio_ClinicalBERT) KNN | 768-dim embedding of each record serialized as text |
 
-**Dataset (current plan):** [UCI Diabetes 130-US Hospitals 1999–2008](https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008), public, no data use agreement.
-The original plan used MIMIC-IV + CLMBR-T-base; it was dropped because of access approvals and setup cost (see [docs/decision_log.md](docs/decision_log.md)).
+**Dataset:** [UCI Diabetes 130-US Hospitals 1999–2008](https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008), public, no data use agreement. The original MIMIC-IV + CLMBR-T-base plan was dropped; see [docs/decision_log.md](docs/decision_log.md).
 
-## Assignment phases
+## Research questions
 
-- **Phase I – How does the model behave?** Black box closed: investigative visualizations of inputs vs. neighbors (scatter plot with one variable per channel, reordered confusion matrices, input-feature UMAP with drill-down, admission paths, counterfactual neighbor flips).
-- **Phase II – What did the model learn?** Black box open: embedding projections, probing classifiers, distance decomposition (e.g. SHAP), embedding trajectories. Each view explains one Phase I observation; each pair uses at least two techniques.
-- **AI4Vis:** the group splits into an AI-aided pair and a human-only pair, which switch roles after Phase I. The AI-aided pair's prompts and decisions are logged in [docs/ai4vis_log.md](docs/ai4vis_log.md).
+<!-- Agree on these at the start of each phase. Answer every one of them explicitly in the results. -->
 
-## Timeline
+**Phase I – How do the models behave?** (black box closed)
+1. Do the retrieved neighbors share the query patient's later complication pathway, and where in patient space does this fail?
+2. Are neighbors chosen by demographics (sex, race, age) rather than clinical state?
+3. How sensitive are neighbors to small clinical vs. demographic edits?
 
-| Date | Milestone |
-|---|---|
-| 21.10.2026 | Group formation |
-| 28.10.2026 | Task selection (task, model, dataset) on Moodle |
-| 05./06.11.2026 | Feedback 1 |
-| 11.11.2026 | Midpoint: code of both pairs, Phase I AI record, ≤ 5-min video |
-| 26.11.–04.12.2026 | Feedback 2 |
-| 09.12.2026 | Final: code, AI records, 10-min recorded presentation + slides |
-| 10.–17.12.2026 | Live presentation sessions (attend at least one) |
+**Phase II – What did the models learn?** (black box open)
+- To be fixed after the midpoint, each RQ explaining one Phase I finding.
 
-Full course notes and requirements: [docs/course_notes.md](docs/course_notes.md).
+## Structure
 
-## Repository layout
+The two pairs switch roles after Phase I, as the assignment requires.
+
+| Pair | Members | Phase I | Phase II |
+|---|---|---|---|
+| A | TODO | AI-aided | human-only |
+| B | TODO | human-only | AI-aided |
 
 ```
-docs/
-  course_notes.md        summary of lectures and lab sessions relevant to the assignment
-  decision_log.md        why we moved from MIMIC-IV/CLMBR-T-base to UCI + Bio_ClinicalBERT
-  baseline_review.md     review of the shared Phase I baseline and checks to run
-  ai4vis_log.md          AI4VIS prompt / decision log
-  proposal_v1_mimic/     original MIMIC-IV proposal (document + slides), kept for reference
-01_prepare_baseline_data.py  shared data + model pipeline (writes outputs/, git-ignored)
-notebooks/               analysis notebooks
-figures/                 aggregated figures only
-data/                    local data, git-ignored
-team-info.json           required by the course
-workload.json            required by the course
+shared/                      common starting point agreed by all four members
+  01_prepare_baseline_data.py  cohort, Model A/B representations, KNN, counterfactual flips -> shared/outputs/
+  02_phase1_shared_baseline.ipynb
+phase1/                      Phase I: How do the models behave?
+  pair_A_ai_aided/
+  pair_B_human_only/
+phase2/                      Phase II: What did the models learn?
+  pair_A_human_only/
+  pair_B_ai_aided/
+ai4vis/                      AI interaction records and the comparison of the two pairs
+  phase1_ai_log.md
+  phase2_ai_log.md
+  reflection.md
+presentation/
+  midpoint/                  progress video (<= 5 min) slides
+  final/                     final slide deck (10-min recorded presentation)
+  presentation_video.json    video links
+docs/                        decisions, reviews, course notes, original proposal
+environment.yml
+team-info.json               required by the course
+workload.json                required by the course
 ```
+
+Data (`data/`, `data_cache/`, `outputs/`) is never committed.
+
+## Deliverables
+
+| Due | Deliverable | Where |
+|---|---|---|
+| 28.10.2026 | Task selection on Moodle | — |
+| 11.11.2026 | Code from both pairs, Phase I AI record, video ≤ 5 min | `phase1/`, `ai4vis/phase1_ai_log.md`, `presentation/midpoint/` |
+| 09.12.2026 | All code, AI records of both phases, 10-min recorded presentation + slides | `phase2/`, `ai4vis/`, `presentation/final/` |
+
+Feedback slots: 05./06.11 and 26.11.–04.12. Live presentations: 10.–17.12.2026 (attend at least one). Full schedule: [docs/course_notes.md](docs/course_notes.md).
 
 ## Setup
 
-Run `python 01_prepare_baseline_data.py` (downloads UCI into `data_cache/`, writes `outputs/`, both git-ignored), then open `notebooks/02_phase1_shared_baseline.ipynb`. Known issues: see [docs/baseline_review.md](docs/baseline_review.md).
+```bash
+conda env create -f environment.yml
+conda activate shap_shifters
+cd shared
+python 01_prepare_baseline_data.py   # downloads UCI into shared/data_cache/, writes shared/outputs/
+jupyter lab
+```
+
+Pair notebooks read the shared outputs from `../../shared/outputs/`. Known issues in the baseline: [docs/baseline_review.md](docs/baseline_review.md).
