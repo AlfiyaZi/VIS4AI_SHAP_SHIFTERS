@@ -38,7 +38,7 @@ The two pairs switch roles after Phase I, as the assignment requires.
 shared/                      common starting point agreed by all four members
   01_prepare_baseline_data.py  cohort, Model A/B representations, KNN, counterfactual flips -> shared/outputs/
   02_phase1_shared_baseline.ipynb
-phase1/                      Phase I: How do the models behave?
+phase1/                      Phase I: How do the models behave? (plan: phase1/README.md)
   pair_A_ai_aided/
   pair_B_human_only/
 phase2/                      Phase II: What did the models learn?
