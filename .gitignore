@@ -12,6 +12,11 @@ __pycache__/
 .venv/
 venv/
 .env
+.cache/
+
+# IDEs
+.idea/
+.vscode/
 
 # OS
 .DS_Store
