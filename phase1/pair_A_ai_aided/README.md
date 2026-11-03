@@ -1,45 +1,42 @@
-# Phase I — Pair A (AI-Aided Interactive Dashboard)
+# Phase I — Pair A (AI-Aided Interactive Dashboard & Exploration Guide)
 
 **Team SHAP_SHIFTERS | Pair A: Julian Bakan, Ahmad Hasan**
 
-This directory contains the interactive Visual Analytics dashboard built for Phase I. The dashboard reads directly from the precomputed static tables in `shared/data/` and provides 4 linked visual views to explore black-box behavior across Model A (Count / Clinical Features KNN) and Model B (Bio_ClinicalBERT KNN).
+This directory contains Pair A's analytical workspace for Phase I:
+1. **`run_dashboard.py`**: The multi-tab interactive Dash studio featuring coordinated cross-filtering across 4 primary views, calibration curve analysis, model disparity battlegrounds, demographic audits, and dynamic cohort profiling.
+2. **`dataset_and_models_guide.ipynb`**: The comprehensive, 26-cell interactive Jupyter notebook that walks through the clinical dataset, models, 15 input features, 4 complication pathways, calibration cliff, and Phase I behavioral discoveries.
+3. **`test_dashboard.py`**: Automated headless test suite verifying all 13 unit tests, layout endpoints, and callback persistence.
 
 ---
 
-## Quickstart: Running the Dashboard
+## Quickstart
 
-Activate the project environment and run:
-
+### Option 1: Launch the Interactive Web Studio (Dash)
 ```bash
 python phase1/pair_A_ai_aided/run_dashboard.py
 ```
+Open **`http://127.0.0.1:8050`** in your browser.
 
-Then open your browser at **`http://127.0.0.1:8050`**.
+### Option 2: Explore the Jupyter Guide
+```bash
+jupyter lab phase1/pair_A_ai_aided/dataset_and_models_guide.ipynb
+```
 
 ---
 
-## The 4 Coordinated Views
+## Dashboard Architecture: 3 Analytical Modules
 
-### 1. View 1: Jittered Multi-Channel Scatter Explorer
-- **Axes:** X = Model B (or Model A) Neighbor Agreement ($k=10$), Y = Comorbidity Count (`number_diagnoses`).
-- **Encodings:** Color = HbA1c status (`None`, `Norm`, `>7`, `>8`), Shape = Patient Sex (Circle = Female, Diamond = Male), Facets / Small Multiples = True Next Pathway.
-- **Overplotting Controls:** Toggle categorical jittering to unpack discrete steps; toggle density contours to observe dense comorbidity clusters.
-- **Coordination:** Box or Lasso selection filters all other views to the selected patient cohort.
+### Tab 1: 🎛️ Primary Retrieval Studio (Views 1 – 4)
+- **View 1: Agreement vs. Comorbidity Explorer**: Scatter plot faceted by True Next Pathway with categorical jitter, density contours, HbA1c color encoding, and patient sex symbols.
+- **View 2: Reordered Error & Confusion Breakdown Matrix**: Model A vs. Model B vs. Majority Baseline heatmaps with hierarchical clustering (optimal leaf ordering). Click any cell to cross-filter.
+- **View 3: 2D UMAP Manifold & Longitudinal Trajectories**: 2D projection of clinical inputs with statistical driver annotations (Cramér's V) and repeat-admission patient trajectories ($V_1 \to V_2 \to V_3$).
+- **View 4: Counterfactual Neighbor Flips & Patient Dossier**: Stability under Sex swap, Age shift, and HbA1c elevation + single-patient dossier inspector.
 
-### 2. View 2: Reordered Error & Confusion Breakdown Matrix
-- **Side-by-Side Heatmaps:** Model A vs. Model B vs. Majority Baseline.
-- **Hierarchical Reordering:** Reordered via hierarchical clustering on confusion vectors so confusing classes sit adjacently.
-- **Interaction:** Clicking any individual cell (e.g. True *Cardiovascular* predicted as *Kidney / Renal*) filters the entire dashboard to inspect those specific misclassified patients.
+### Tab 2: ⚖️ Model Disparity & Reliability Audit
+- **Test-Time Vote-Share Calibration Curve (with 95% Wilson CIs)**: Evaluates empirical accuracy against label-free test-time prediction confidence (`vote_share`, from 40% to 100%). Proves that KNN only beats the 66.4% majority baseline when $\ge 8/10$ neighbors agree on the predicted class (`vote_share >= 80%`, covering ~31% of stays and reaching 68–78% accuracy).
+- **Model A vs. Model B Disagreement Battleground ($n=5,918$ Conflicts)**: 100%-normalized win-rate bars across encounters where models disagree, annotated with per-bracket sample sizes ($n$). Shows Tabular KNN winning 58.5% vs. 34.9% on patients under 50 ($n=482$), while `Bio_ClinicalBERT` edges out 51.2% vs. 46.0% on elderly patients ($80+$, $n=1,321$).
+- **Subgroup Accuracy Lift vs. Subgroup Majority Baseline (with 95% Wilson CIs)**: Controls for subgroup base-rate differences (`% Uncomplicated / Other`) across race and admission pathway. Proves that lower raw accuracy on African American stays (60.0% vs. 63.7% Caucasian) is explained by a lower majority-class base rate (63.1% vs. 66.9%), yielding an identical relative lift ($-3.1\text{ pp}$ vs. $-3.3\text{ pp}$).
 
-### 3. View 3: Input-Space UMAP & Longitudinal Trajectories
-- **2D UMAP:** Computed strictly on input clinical features (black box closed).
-- **Color Modes:** Agreement disparity ($\text{Agreement}_B - \text{Agreement}_A$), Model A agreement, Model B agreement, or ground truth pathway.
-- **Driver Annotations:** Identifies the primary input feature separating UMAP clusters (e.g. medication `change`, association $0.80$).
-- **Longitudinal Trajectories:** Toggle to connect repeat admissions ($V_1 \to V_2 \to \dots$) as directed vectors to reveal clinical state progression over time.
-
-### 4. View 4: Counterfactual Neighbor Flips & Patient Inspector
-- **Bar Chart:** Displays mean neighbor flips ($0$ to $10$) under:
-  1. Sex Swap ($M \leftrightarrow F$)
-  2. Age Shift ($+20$ years)
-  3. HbA1c Elevation (None / Norm $\to >8$)
-- **Patient Inspector:** Shows raw UCI encounter attributes, serialized summary text, and a stacked breakdown of retrieved neighbors for any selected encounter.
+### Tab 3: 🧬 Dynamic Cohort Profiler (Selection vs. Baseline)
+- **Normalized Clinical Complexity Profiler (`Baseline = 100%`)**: Indexes all 6 clinical complexity metrics to 100% of the hospital mean so small-scale counts (`number_emergency = 0.33`) and large-scale counts (`num_lab_procedures = 42.54`) are directly comparable on the same horizontal axis, with raw averages and relative `%` shifts displayed on every bar.
+- **Complication Outcomes Distribution Shift**: Shows shifts in true complication proportions between the active selection and population baseline.

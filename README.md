@@ -46,10 +46,12 @@ shared/                              Common static data contract
     counterfactual_flips.parquet     Neighbor flips under Sex swap, Age shift, HbA1c elevation
     baseline_metrics.json            Cohort benchmarks (A vs. B vs. Majority vs. Random)
 phase1/
-  pair_A_ai_aided/                   AI-aided interactive dashboard (Dash / Plotly)
-    run_dashboard.py                 Dashboard launcher
-    dashboard/                       4 coordinated visual views with cross-filtering
-  pair_B_human_only/                 Human-only visual analytics workspace
+  pair_A_ai_aided/                   Pair A (AI-aided) visual analytics workspace
+    dataset_and_models_guide.ipynb   Comprehensive 26-cell interactive guide & behavioral audit
+    run_dashboard.py                 Interactive Dash studio launcher (3 modules, coordinated)
+    dashboard/                       Layout, callbacks, and figure builders
+    test_dashboard.py                Headless automated test suite (13 tests)
+  pair_B_human_only/                 Pair B (Human-only) visual analytics workspace
     README.md                        Step-by-step instructions for Pair B (pure Pandas)
 phase2/
   pair_A_human_only/
@@ -79,9 +81,9 @@ workload.json                        Required by course
 conda env create -f environment.yml
 conda activate shap_shifters
 
-# 2. Run shared baseline verification
-jupyter lab shared/02_phase1_shared_baseline.ipynb
+# 2. Explore Pair A interactive dataset, models & behavioral audit guide
+jupyter lab phase1/pair_A_ai_aided/dataset_and_models_guide.ipynb
 
-# 3. Launch Pair A Dashboard
+# 3. Launch Pair A Interactive Studio (Dash)
 python phase1/pair_A_ai_aided/run_dashboard.py
 ```

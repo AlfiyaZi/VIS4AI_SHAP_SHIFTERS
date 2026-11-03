@@ -1,13 +1,49 @@
 """
 Layout components for the Pair A (AI-aided) Phase I dashboard.
+Organized in a strict 1 -> 2 -> 3 -> 4 visual hierarchy with dedicated control bars and zero duplicate IDs.
 """
 
 from __future__ import annotations
 
 from dash import dcc, html
-
 from data_layer import DashboardData
 import figures
+
+CARD_STYLE = {
+    "backgroundColor": "#FFFFFF",
+    "borderRadius": "10px",
+    "border": "1px solid #DEE2E6",
+    "boxShadow": "0 2px 6px rgba(0,0,0,0.04)",
+    "padding": "16px 18px",
+    "display": "flex",
+    "flexDirection": "column",
+}
+
+CONTROL_BAR_STYLE = {
+    "backgroundColor": "#F8F9FA",
+    "border": "1px solid #E9ECEF",
+    "borderRadius": "6px",
+    "padding": "6px 12px",
+    "marginTop": "8px",
+    "marginBottom": "8px",
+    "fontSize": "12px",
+    "display": "flex",
+    "alignItems": "center",
+    "justifyContent": "space-between",
+    "flexWrap": "wrap",
+    "gap": "10px",
+}
+
+GRAPH_CONFIG_INTERACTIVE = {
+    "displayModeBar": True,
+    "displaylogo": False,
+    "modeBarButtonsToRemove": ["toImage", "sendDataToCloud"],
+}
+
+GRAPH_CONFIG_CLEAN = {
+    "displayModeBar": False,
+    "displaylogo": False,
+}
 
 
 def create_header_banner(df, metrics: dict) -> html.Div:
@@ -19,45 +55,39 @@ def create_header_banner(df, metrics: dict) -> html.Div:
 
     return html.Div(
         style={
-            "backgroundColor": "#FFFFFF",
-            "padding": "20px 24px",
-            "borderRadius": "8px",
-            "boxShadow": "0 1px 3px rgba(0,0,0,0.08)",
-            "marginBottom": "16px",
+            **CARD_STYLE,
+            "borderTop": "4px solid #1D3557",
+            "padding": "14px 20px",
+            "marginBottom": "12px",
         },
         children=[
             html.Div(
-                style={"display": "flex", "justifyContent": "space-between", "alignItems": "center"},
+                style={
+                    "display": "flex",
+                    "justifyContent": "space-between",
+                    "alignItems": "center",
+                    "flexWrap": "wrap",
+                    "gap": "14px",
+                },
                 children=[
                     html.Div([
                         html.H2(
-                            "Phase I: Black-Box Patient Retrieval Explorer",
-                            style={"margin": "0 0 6px 0", "fontSize": "22px", "fontWeight": "700", "color": "#1A1A1A"},
+                            "🏥 Phase I: Clinical Patient Retrieval & Behavioral Audit Studio",
+                            style={"margin": "0 0 3px 0", "fontSize": "19px", "fontWeight": "700", "color": "#1D3557"},
                         ),
                         html.P(
-                            "Team SHAP_SHIFTERS | Pair A (AI-Aided) | JKU AI & Visualization Lab WS26",
-                            style={"margin": 0, "fontSize": "13px", "color": "#6C757D"},
+                            "Team SHAP_SHIFTERS | Pair A (AI-Aided Visual Analytics) — Coordinated Views 1 → 2 → 3 → 4",
+                            style={"margin": 0, "fontSize": "12.5px", "color": "#6C757D"},
                         ),
                     ]),
                     html.Div(
-                        style={"display": "flex", "gap": "16px", "textAlign": "right"},
+                        style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
                         children=[
-                            html.Div([
-                                html.Span("Cohort Size", style={"fontSize": "11px", "color": "#6C757D", "display": "block"}),
-                                html.Strong(f"{total_encounters:,} visits ({unique_patients:,} pts)", style={"fontSize": "14px"}),
-                            ]),
-                            html.Div([
-                                html.Span("Model A Acc", style={"fontSize": "11px", "color": "#6C757D", "display": "block"}),
-                                html.Strong(f"{acc_a:.1%}", style={"fontSize": "14px", "color": "#4E79A7"}),
-                            ]),
-                            html.Div([
-                                html.Span("Model B Acc", style={"fontSize": "11px", "color": "#6C757D", "display": "block"}),
-                                html.Strong(f"{acc_b:.1%}", style={"fontSize": "14px", "color": "#E15759"}),
-                            ]),
-                            html.Div([
-                                html.Span("Majority Baseline", style={"fontSize": "11px", "color": "#6C757D", "display": "block"}),
-                                html.Strong(f"{acc_maj:.1%}", style={"fontSize": "14px", "color": "#555555"}),
-                            ]),
+                            _metric_badge("Cohort Size", f"{total_encounters:,} visits", f"{unique_patients:,} patients", "#212529"),
+                            _metric_badge("Model A (Tabular)", f"{acc_a:.1%}", "127-D KNN", "#457B9D"),
+                            _metric_badge("Model B (BERT)", f"{acc_b:.1%}", "768-D KNN", "#E63946"),
+                            _metric_badge("Majority Baseline", f"{acc_maj:.1%}", "Always 'Other'", "#495057"),
+                            _metric_badge("Kidney / Eye Recall", "0.0%", "Class Imbalance Blindspot", "#8E6CBF"),
                         ],
                     ),
                 ],
@@ -66,16 +96,32 @@ def create_header_banner(df, metrics: dict) -> html.Div:
     )
 
 
-def create_global_toolbar(df) -> html.Div:
-    sample_eids = df.index[:150]
+def _metric_badge(title: str, val: str, sub: str, color: str) -> html.Div:
     return html.Div(
         style={
-            "backgroundColor": "#FFFFFF",
-            "padding": "12px 20px",
+            "backgroundColor": "#F8F9FA",
+            "border": "1px solid #E9ECEF",
             "borderRadius": "8px",
-            "boxShadow": "0 1px 3px rgba(0,0,0,0.08)",
-            "marginBottom": "16px",
-            "display": "flex",
+            "padding": "5px 12px",
+            "minWidth": "108px",
+            "textAlign": "center",
+        },
+        children=[
+            html.Span(title, style={"fontSize": "10.5px", "color": "#6C757D", "display": "block", "fontWeight": "600"}),
+            html.Strong(val, style={"fontSize": "14.5px", "color": color, "display": "block", "lineHeight": "1.2"}),
+            html.Span(sub, style={"fontSize": "10px", "color": "#868E96"}),
+        ],
+    )
+
+
+def create_global_toolbar(df) -> html.Div:
+    sample_eids = df.index[:300]
+    return html.Div(
+        style={
+            **CARD_STYLE,
+            "padding": "10px 18px",
+            "marginBottom": "14px",
+            "flexDirection": "row",
             "justifyContent": "space-between",
             "alignItems": "center",
             "flexWrap": "wrap",
@@ -83,37 +129,42 @@ def create_global_toolbar(df) -> html.Div:
         },
         children=[
             html.Div(
-                style={"display": "flex", "alignItems": "center", "gap": "16px"},
+                style={"display": "flex", "alignItems": "center", "gap": "14px", "flexWrap": "wrap"},
                 children=[
                     html.Button(
-                        "Reset All Selections",
+                        "✕ Reset / Clear Selection",
                         id="btn-reset",
                         n_clicks=0,
                         style={
-                            "backgroundColor": "#0D6EFD",
+                            "backgroundColor": "#1D3557",
                             "color": "#FFFFFF",
                             "border": "none",
-                            "padding": "6px 14px",
-                            "borderRadius": "4px",
+                            "padding": "7px 15px",
+                            "borderRadius": "6px",
                             "cursor": "pointer",
                             "fontWeight": "600",
-                            "fontSize": "13px",
+                            "fontSize": "12.5px",
                         },
                     ),
                     html.Div(id="selection-status-badge", style={"fontSize": "13px", "fontWeight": "500"}),
                 ],
             ),
             html.Div(
-                style={"display": "flex", "alignItems": "center", "gap": "16px", "fontSize": "13px"},
+                style={"display": "flex", "alignItems": "center", "gap": "10px", "fontSize": "12.5px"},
                 children=[
-                    html.Span("Quick Encounter Inspect:"),
+                    html.Span("🔍 Inspect Patient Stay:", style={"fontWeight": "600", "color": "#1D3557"}),
                     dcc.Dropdown(
                         id="encounter-inspect-dropdown",
-                        options=[{"label": f"Encounter #{eid} ({df.loc[eid, 'true_next_pathway']})", "value": eid}
-                                 for eid in sample_eids],
+                        options=[
+                            {
+                                "label": f"Encounter #{int(eid)} — {df.loc[eid, 'true_next_pathway'].split(' ')[0]} ({df.loc[eid, 'gender']}, {df.loc[eid, 'age']})",
+                                "value": int(eid),
+                            }
+                            for eid in sample_eids
+                        ],
                         value=int(sample_eids[0]),
                         clearable=False,
-                        style={"width": "260px"},
+                        style={"width": "300px"},
                     ),
                 ],
             ),
@@ -123,135 +174,404 @@ def create_global_toolbar(df) -> html.Div:
 
 def create_view1_container() -> html.Div:
     return html.Div(
-        style={
-            "backgroundColor": "#FFFFFF",
-            "padding": "16px",
-            "borderRadius": "8px",
-            "boxShadow": "0 1px 3px rgba(0,0,0,0.08)",
-        },
+        style=CARD_STYLE,
         children=[
+            html.Div([
+                html.H3(
+                    "View 1: Neighbor Agreement vs. Comorbidity Explorer",
+                    style={"margin": "0 0 2px 0", "fontSize": "15px", "fontWeight": "700", "color": "#1D3557"},
+                ),
+                html.Span(
+                    "Faceted by True Next Complication Pathway. Drag a Lasso or Box to cross-filter all views; click any point to inspect.",
+                    style={"fontSize": "12px", "color": "#6C757D"},
+                ),
+            ]),
             html.Div(
-                style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "8px"},
+                style=CONTROL_BAR_STYLE,
                 children=[
-                    html.H3("View 1: Jittered Multi-Channel Scatter Explorer", style={"margin": 0, "fontSize": "15px", "fontWeight": "600"}),
                     html.Div(
-                        style={"display": "flex", "gap": "10px", "fontSize": "12px", "alignItems": "center"},
+                        style={"display": "flex", "alignItems": "center", "gap": "8px"},
                         children=[
+                            html.Strong("X-Axis:", style={"color": "#1D3557"}),
                             dcc.RadioItems(
                                 id="v1-model-x",
-                                options=[{"label": "Model B X-Axis", "value": "model_b"},
-                                         {"label": "Model A X-Axis", "value": "model_a"}],
+                                options=[
+                                    {"label": " Model B Agreement (BERT)", "value": "model_b"},
+                                    {"label": " Model A Agreement (Tabular)", "value": "model_a"},
+                                ],
                                 value="model_b",
                                 inline=True,
+                                inputStyle={"marginRight": "4px", "marginLeft": "8px"},
                             ),
+                        ],
+                    ),
+                    html.Div(
+                        style={"display": "flex", "alignItems": "center", "gap": "8px"},
+                        children=[
+                            html.Strong("Display:", style={"color": "#1D3557"}),
                             dcc.Checklist(
                                 id="v1-options",
-                                options=[{"label": " Jitter", "value": "jitter"},
-                                         {"label": " Density Contours", "value": "contours"}],
+                                options=[
+                                    {"label": " Jitter Points", "value": "jitter"},
+                                    {"label": " Density Contours", "value": "contours"},
+                                ],
                                 value=["jitter"],
                                 inline=True,
+                                inputStyle={"marginRight": "4px", "marginLeft": "8px"},
                             ),
                         ],
                     ),
                 ],
             ),
-            dcc.Graph(id="graph-view1-scatter", config={"displayModeBar": True}),
+            dcc.Graph(id="graph-view1-scatter", config=GRAPH_CONFIG_INTERACTIVE),
         ],
     )
 
 
 def create_view2_container() -> html.Div:
     return html.Div(
-        style={
-            "backgroundColor": "#FFFFFF",
-            "padding": "16px",
-            "borderRadius": "8px",
-            "boxShadow": "0 1px 3px rgba(0,0,0,0.08)",
-        },
+        style=CARD_STYLE,
         children=[
+            html.Div([
+                html.H3(
+                    "View 2: Reordered Error & Confusion Breakdown Matrix",
+                    style={"margin": "0 0 2px 0", "fontSize": "15px", "fontWeight": "700", "color": "#1D3557"},
+                ),
+                html.Span(
+                    "Compares Model A, Model B, and Majority Baseline. Click any cell (True × Predicted) to filter the entire cohort.",
+                    style={"fontSize": "12px", "color": "#6C757D"},
+                ),
+            ]),
             html.Div(
-                style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "8px"},
+                style=CONTROL_BAR_STYLE,
                 children=[
-                    html.H3("View 2: Reordered Error & Confusion Breakdown Matrix", style={"margin": 0, "fontSize": "15px", "fontWeight": "600"}),
                     html.Div(
-                        style={"display": "flex", "gap": "10px", "fontSize": "12px", "alignItems": "center"},
+                        style={"display": "flex", "alignItems": "center", "gap": "8px"},
                         children=[
+                            html.Strong("Matrix Options:", style={"color": "#1D3557"}),
                             dcc.Checklist(
                                 id="v2-options",
-                                options=[{"label": " Clustered Order", "value": "clustered"},
-                                         {"label": " Row Normalize (%)", "value": "normalize"}],
+                                options=[
+                                    {"label": " Clustered Class Order (Optimal Leaf)", "value": "clustered"},
+                                    {"label": " Row-Normalized (%)", "value": "normalize"},
+                                ],
                                 value=["clustered", "normalize"],
                                 inline=True,
+                                inputStyle={"marginRight": "4px", "marginLeft": "8px"},
                             ),
                         ],
                     ),
+                    html.Span("Tip: Dotted cells = diagonal (correct predictions)", style={"fontSize": "11px", "color": "#6C757D"}),
                 ],
             ),
             html.Div(
-                style={"display": "grid", "gridTemplateColumns": "1fr 1fr 1fr", "gap": "8px"},
+                style={"display": "grid", "gridTemplateColumns": "1.08fr 1fr 1fr", "gap": "8px"},
                 children=[
-                    dcc.Graph(id="graph-view2-model-a", config={"displayModeBar": False}),
-                    dcc.Graph(id="graph-view2-model-b", config={"displayModeBar": False}),
-                    dcc.Graph(id="graph-view2-majority", config={"displayModeBar": False}),
+                    dcc.Graph(id="graph-view2-model-a", config=GRAPH_CONFIG_CLEAN),
+                    dcc.Graph(id="graph-view2-model-b", config=GRAPH_CONFIG_CLEAN),
+                    dcc.Graph(id="graph-view2-majority", config=GRAPH_CONFIG_CLEAN),
                 ],
             ),
         ],
     )
 
 
-def create_view3_container() -> html.Div:
+def create_view3_container(data: DashboardData) -> html.Div:
+    top_drivers = data.driver_ranking.head(5)
     return html.Div(
-        style={
-            "backgroundColor": "#FFFFFF",
-            "padding": "16px",
-            "borderRadius": "8px",
-            "boxShadow": "0 1px 3px rgba(0,0,0,0.08)",
-        },
+        style=CARD_STYLE,
         children=[
+            html.Div([
+                html.H3(
+                    "View 3: Input-Space UMAP & Longitudinal Patient Trajectories",
+                    style={"margin": "0 0 2px 0", "fontSize": "15px", "fontWeight": "700", "color": "#1D3557"},
+                ),
+                html.Span(
+                    "2D UMAP of the 30,248 patient stays. Use Lasso or Box selection to isolate regions; click a point to inspect.",
+                    style={"fontSize": "12px", "color": "#6C757D"},
+                ),
+            ]),
             html.Div(
-                style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "8px"},
+                style=CONTROL_BAR_STYLE,
                 children=[
-                    html.H3("View 3: Input-Space UMAP & Longitudinal Trajectories", style={"margin": 0, "fontSize": "15px", "fontWeight": "600"}),
                     html.Div(
-                        style={"display": "flex", "gap": "8px", "alignItems": "center", "fontSize": "12px"},
+                        style={"display": "flex", "alignItems": "center", "gap": "8px"},
                         children=[
-                            html.Span("Color:"),
+                            html.Strong("Color By:", style={"color": "#1D3557"}),
                             dcc.Dropdown(
                                 id="v3-color-mode",
                                 options=[{"label": v, "value": k} for k, v in figures.UMAP_COLOR_MODES.items()],
-                                value="disparity",
+                                value="driver",
                                 clearable=False,
-                                style={"width": "180px"},
+                                style={"width": "220px"},
                             ),
+                        ],
+                    ),
+                    html.Div(
+                        style={"display": "flex", "alignItems": "center", "gap": "8px"},
+                        children=[
+                            html.Strong("Overlays:", style={"color": "#1D3557"}),
                             dcc.Checklist(
                                 id="v3-traj-toggle",
-                                options=[{"label": " Trajectories", "value": "traj"},
-                                         {"label": " Driver Annotations", "value": "annot"}],
+                                options=[
+                                    {"label": " Trajectories (V1→V2→V3)", "value": "traj"},
+                                    {"label": " Cluster Labels", "value": "annot"},
+                                ],
                                 value=["annot"],
                                 inline=True,
+                                inputStyle={"marginRight": "4px", "marginLeft": "8px"},
                             ),
                         ],
                     ),
                 ],
             ),
-            dcc.Graph(id="graph-view3-umap", config={"displayModeBar": True}),
+            dcc.Graph(id="graph-view3-umap", config=GRAPH_CONFIG_INTERACTIVE),
+            # Compact summary strip of top statistical feature drivers separating the UMAP islands
+            html.Div(
+                style={
+                    "marginTop": "8px",
+                    "padding": "8px 12px",
+                    "backgroundColor": "#F8F9FA",
+                    "borderRadius": "6px",
+                    "border": "1px solid #E9ECEF",
+                    "fontSize": "11.5px",
+                    "display": "flex",
+                    "alignItems": "center",
+                    "justifyContent": "space-between",
+                    "flexWrap": "wrap",
+                    "gap": "8px",
+                },
+                children=[
+                    html.Span(
+                        "📊 Top Features Separating UMAP Islands (Cramér's V / η):",
+                        style={"fontWeight": "700", "color": "#1D3557"},
+                    ),
+                    html.Div(
+                        style={"display": "flex", "gap": "10px", "flexWrap": "wrap"},
+                        children=[
+                            html.Span(
+                                f"{i + 1}. {row['feature']} ({row['association']:.2f})",
+                                style={
+                                    "backgroundColor": "#EBF2FA" if i < 2 else "#FFFFFF",
+                                    "border": "1px solid #DEE2E6",
+                                    "borderRadius": "4px",
+                                    "padding": "2px 8px",
+                                    "fontWeight": "600" if i < 2 else "400",
+                                },
+                            )
+                            for i, (_, row) in enumerate(top_drivers.iterrows())
+                        ],
+                    ),
+                ],
+            ),
         ],
     )
 
 
 def create_view4_container() -> html.Div:
     return html.Div(
-        style={
-            "backgroundColor": "#FFFFFF",
-            "padding": "16px",
-            "borderRadius": "8px",
-            "boxShadow": "0 1px 3px rgba(0,0,0,0.08)",
-        },
+        style=CARD_STYLE,
         children=[
-            html.H3("View 4: Counterfactual Neighbor Flips & Patient Inspector", style={"margin": "0 0 8px 0", "fontSize": "15px", "fontWeight": "600"}),
-            dcc.Graph(id="graph-view4-flips", config={"displayModeBar": False}),
-            html.Hr(style={"margin": "12px 0", "borderColor": "#E9ECEF"}),
+            html.Div([
+                html.H3(
+                    "View 4: Counterfactual Neighbor Flips & Patient Inspector",
+                    style={"margin": "0 0 2px 0", "fontSize": "15px", "fontWeight": "700", "color": "#1D3557"},
+                ),
+                html.Span(
+                    "Top: Sensitivity of k=10 retrieved neighbors under synthetic clinical edits. Bottom: Active encounter dossier.",
+                    style={"fontSize": "12px", "color": "#6C757D"},
+                ),
+            ]),
+            html.Div(
+                style={"marginTop": "6px"},
+                children=[dcc.Graph(id="graph-view4-flips", config=GRAPH_CONFIG_CLEAN)],
+            ),
+            html.Hr(style={"margin": "10px 0", "border": "none", "borderTop": "1px solid #E9ECEF"}),
             html.Div(id="view4-inspector-card"),
+        ],
+    )
+
+
+def create_tab_disparity() -> html.Div:
+    return html.Div(
+        style={"marginTop": "10px"},
+        children=[
+            # Informative Phase I Synthesis Banner
+            html.Div(
+                style={
+                    "padding": "10px 16px",
+                    "backgroundColor": "#FFFFFF",
+                    "borderRadius": "8px",
+                    "border": "1px solid #E9ECEF",
+                    "marginBottom": "12px",
+                    "fontSize": "12.5px",
+                    "color": "#333",
+                    "lineHeight": "1.4",
+                },
+                children=[
+                    html.Strong("🔍 Phase I Verified Reliability Findings: ", style={"color": "#1D3557"}),
+                    html.Span("1. Vote-Share Calibration: KNN only beats the 66.4% majority-class baseline when >=8/10 neighbors agree on the predicted class (~31% of stays, reaching 68–78% accuracy). "),
+                    html.Span("2. Age Disagreement Split: Across the 5,918 A-vs-B conflicts, Model A wins 58.5% vs 34.9% on patients <50 yrs (n=482), whereas Model B edges out 51.2% vs 46.0% on patients 80+ (n=1,321). "),
+                    html.Span("3. Base-Rate Confounding: Lower raw accuracy on African American stays (60.0% vs 63.7% Caucasian) is explained by a lower majority-class base rate (63.1% vs 66.9%); relative lift over each group's majority baseline is identical (-3.1 pp vs -3.3 pp)."),
+                ],
+            ),
+            # Row 1: Calibration & Danger Zone (Left 52%) + Disagreement Battleground (Right 48%)
+            html.Div(
+                style={"display": "grid", "gridTemplateColumns": "1.1fr 1fr", "gap": "14px", "marginBottom": "14px"},
+                children=[
+                    html.Div(
+                        style=CARD_STYLE,
+                        children=[
+                            html.Div([
+                                html.H3(
+                                    "Test-Time Calibration: Predicted Vote Share vs. Empirical Accuracy",
+                                    style={"margin": "0 0 2px 0", "fontSize": "15px", "fontWeight": "700", "color": "#1D3557"},
+                                ),
+                                html.Span(
+                                    "Bins predictions by label-free test-time vote share (40% to 100%) with 95% Wilson CIs. Only >=80% consensus beats the 66.4% majority baseline.",
+                                    style={"fontSize": "12px", "color": "#6C757D"},
+                                ),
+                            ]),
+                            dcc.Graph(id="graph-diag-calibration", config=GRAPH_CONFIG_CLEAN),
+                        ],
+                    ),
+                    html.Div(
+                        style=CARD_STYLE,
+                        children=[
+                            html.Div(
+                                style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "4px", "flexWrap": "wrap", "gap": "8px"},
+                                children=[
+                                    html.Div([
+                                        html.H3(
+                                            "Model A vs. Model B Disagreement Battleground",
+                                            style={"margin": "0 0 2px 0", "fontSize": "15px", "fontWeight": "700", "color": "#1D3557"},
+                                        ),
+                                        html.Span("100%-normalized win shares across the 5,918 conflicts, with per-bracket sample size n (⚠ flags n < 50).", style={"fontSize": "12px", "color": "#6C757D"}),
+                                    ]),
+                                    html.Div(
+                                        style={"display": "flex", "alignItems": "center", "gap": "6px", "fontSize": "12px"},
+                                        children=[
+                                            html.Strong("Slice By:", style={"color": "#1D3557"}),
+                                            dcc.Dropdown(
+                                                id="diag-disparity-slice",
+                                                options=[
+                                                    {"label": "Age Group", "value": "age"},
+                                                    {"label": "True Complication Pathway", "value": "true_next_pathway"},
+                                                    {"label": "Diagnoses Count (Comorbidity)", "value": "number_diagnoses"},
+                                                    {"label": "Length of Hospital Stay", "value": "time_in_hospital"},
+                                                    {"label": "Medication Change", "value": "change"},
+                                                ],
+                                                value="age",
+                                                clearable=False,
+                                                style={"width": "220px"},
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            dcc.Graph(id="graph-diag-disparity", config=GRAPH_CONFIG_CLEAN),
+                        ],
+                    ),
+                ],
+            ),
+            # Row 2: Demographic & Clinical Subgroup Fairness Audit
+            html.Div(
+                style=CARD_STYLE,
+                children=[
+                    html.Div(
+                        style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "6px", "flexWrap": "wrap", "gap": "8px"},
+                        children=[
+                            html.Div([
+                                html.H3(
+                                    "Subgroup Accuracy Lift vs. Subgroup Majority Baseline (with 95% Wilson CIs)",
+                                    style={"margin": "0 0 2px 0", "fontSize": "15px", "fontWeight": "700", "color": "#1D3557"},
+                                ),
+                                html.Span("Controls for subgroup base-rate differences (e.g. % Uncomplicated / Other per group) to separate true model bias from base-rate confounding.", style={"fontSize": "12px", "color": "#6C757D"}),
+                            ]),
+                            html.Div(
+                                style={"display": "flex", "alignItems": "center", "gap": "8px", "fontSize": "12px"},
+                                children=[
+                                    html.Strong("Subgroup:", style={"color": "#1D3557"}),
+                                    dcc.RadioItems(
+                                        id="diag-subgroup-group",
+                                        options=[
+                                            {"label": " Race / Ethnicity", "value": "race"},
+                                            {"label": " Admission Pathway", "value": "admission_type"},
+                                            {"label": " Age Brackets", "value": "age"},
+                                        ],
+                                        value="race",
+                                        inline=True,
+                                        inputStyle={"marginRight": "4px", "marginLeft": "8px"},
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    dcc.Graph(id="graph-diag-subgroup", config=GRAPH_CONFIG_CLEAN),
+                ],
+            ),
+        ],
+    )
+
+
+def create_tab_profiler() -> html.Div:
+    return html.Div(
+        style={"marginTop": "10px"},
+        children=[
+            # Instructions Banner
+            html.Div(
+                style={
+                    "padding": "10px 16px",
+                    "backgroundColor": "#FFFFFF",
+                    "borderRadius": "8px",
+                    "border": "1px solid #E9ECEF",
+                    "marginBottom": "12px",
+                    "fontSize": "12.5px",
+                    "color": "#333",
+                    "lineHeight": "1.4",
+                },
+                children=[
+                    html.Strong("🧬 How to Use the Dynamic Cohort Profiler: ", style={"color": "#1D3557"}),
+                    html.Span("Switch to Tab 1 (Studio) and drag a Lasso or Box on View 1 (Scatter) or View 3 (UMAP), or click a cell in View 2. Then return to this tab to see how your selected patient cohort compares to the 30,248 hospital baseline!"),
+                ],
+            ),
+            html.Div(
+                style={"display": "grid", "gridTemplateColumns": "1.2fr 1fr", "gap": "14px"},
+                children=[
+                    html.Div(
+                        style=CARD_STYLE,
+                        children=[
+                            html.Div([
+                                html.H3(
+                                    "Clinical Complexity: Active Selection vs. Hospital Baseline",
+                                    style={"margin": "0 0 2px 0", "fontSize": "15px", "fontWeight": "700", "color": "#1D3557"},
+                                ),
+                                html.Span(
+                                    "Shows how your lassoed/clicked patient cohort differs from the overall hospital population.",
+                                    style={"fontSize": "12px", "color": "#6C757D"},
+                                ),
+                            ]),
+                            dcc.Graph(id="graph-profile-vitals", config=GRAPH_CONFIG_CLEAN),
+                        ],
+                    ),
+                    html.Div(
+                        style=CARD_STYLE,
+                        children=[
+                            html.Div([
+                                html.H3(
+                                    "Complication Outcomes Distribution",
+                                    style={"margin": "0 0 2px 0", "fontSize": "15px", "fontWeight": "700", "color": "#1D3557"},
+                                ),
+                                html.Span(
+                                    "Compares the true complication trajectory breakdown of the active selection vs baseline.",
+                                    style={"fontSize": "12px", "color": "#6C757D"},
+                                ),
+                            ]),
+                            dcc.Graph(id="graph-profile-pathways", config=GRAPH_CONFIG_CLEAN),
+                        ],
+                    ),
+                ],
+            ),
         ],
     )
 
@@ -262,38 +582,80 @@ def build_layout(data: DashboardData) -> html.Div:
 
     return html.Div(
         style={
-            "fontFamily": "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-            "backgroundColor": "#F8F9FA",
+            "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+            "backgroundColor": "#F4F6F8",
             "minHeight": "100vh",
-            "padding": "16px 24px",
+            "padding": "14px 20px",
             "color": "#212529",
         },
         children=[
-            # Header & Summary Banner
+            # Header & Metrics Banner
             create_header_banner(df, metrics),
 
-            # Global Control Bar & Active Filter Status
+            # Global Action & Filter Status Bar
             create_global_toolbar(df),
 
-            # Store component for coordinated state
+            # State Stores for Cross-View Coordination
             dcc.Store(id="store-selected-ids", data=None),
             dcc.Store(id="store-active-cell", data=None),
 
-            # Main Grid: Top Row (View 1 & View 2)
-            html.Div(
-                style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "16px", "marginBottom": "16px"},
+            # Main Navigation Tabs
+            dcc.Tabs(
+                id="main-tabs",
+                value="tab-studio",
+                style={"marginBottom": "12px"},
                 children=[
-                    create_view1_container(),
-                    create_view2_container(),
-                ],
-            ),
-
-            # Main Grid: Bottom Row (View 3 & View 4)
-            html.Div(
-                style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "16px"},
-                children=[
-                    create_view3_container(),
-                    create_view4_container(),
+                    dcc.Tab(
+                        label="🎛️ Primary Retrieval Studio (Views 1 – 4)",
+                        value="tab-studio",
+                        style={"fontWeight": "600", "padding": "10px", "fontSize": "13px"},
+                        selected_style={"fontWeight": "700", "color": "#1D3557", "borderTop": "3px solid #1D3557", "padding": "10px", "fontSize": "13px"},
+                        children=[
+                            html.Div(style={"marginTop": "12px"}, children=[
+                                # Row 1: View 1 (Left) + View 2 (Right)
+                                html.Div(
+                                    style={
+                                        "display": "grid",
+                                        "gridTemplateColumns": "1.08fr 1fr",
+                                        "gap": "14px",
+                                        "marginBottom": "14px",
+                                        "alignItems": "stretch",
+                                    },
+                                    children=[
+                                        create_view1_container(),
+                                        create_view2_container(),
+                                    ],
+                                ),
+                                # Row 2: View 3 (Left) + View 4 (Right)
+                                html.Div(
+                                    style={
+                                        "display": "grid",
+                                        "gridTemplateColumns": "1.08fr 1fr",
+                                        "gap": "14px",
+                                        "alignItems": "stretch",
+                                    },
+                                    children=[
+                                        create_view3_container(data),
+                                        create_view4_container(),
+                                    ],
+                                ),
+                            ]),
+                        ],
+                    ),
+                    dcc.Tab(
+                        label="⚖️ Model Disparity & Reliability Audit (Calibration & Subgroups)",
+                        value="tab-disparity",
+                        style={"fontWeight": "600", "padding": "10px", "fontSize": "13px"},
+                        selected_style={"fontWeight": "700", "color": "#1D3557", "borderTop": "3px solid #1D3557", "padding": "10px", "fontSize": "13px"},
+                        children=[create_tab_disparity()],
+                    ),
+                    dcc.Tab(
+                        label="🧬 Dynamic Cohort Profiler (Selection vs. Hospital Baseline)",
+                        value="tab-profiler",
+                        style={"fontWeight": "600", "padding": "10px", "fontSize": "13px"},
+                        selected_style={"fontWeight": "700", "color": "#1D3557", "borderTop": "3px solid #1D3557", "padding": "10px", "fontSize": "13px"},
+                        children=[create_tab_profiler()],
+                    ),
                 ],
             ),
         ],
