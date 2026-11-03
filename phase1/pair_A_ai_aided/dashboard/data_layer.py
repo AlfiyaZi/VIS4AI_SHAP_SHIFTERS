@@ -89,9 +89,10 @@ def _require(path: Path) -> Path:
 
 
 def load_tables() -> tuple[pd.DataFrame, dict]:
-    cohort = pd.read_parquet(_require(DATA_DIR / "cohort_encounters.parquet"))
-    retrieval = pd.read_parquet(_require(DATA_DIR / "retrieval_results.parquet"))
-    flips = pd.read_parquet(_require(DATA_DIR / "counterfactual_flips.parquet"))
+    # Explicitly set use_threads=False to prevent pyarrow multi-threading locks in restricted environments
+    cohort = pd.read_parquet(_require(DATA_DIR / "cohort_encounters.parquet"), use_threads=False)
+    retrieval = pd.read_parquet(_require(DATA_DIR / "retrieval_results.parquet"), use_threads=False)
+    flips = pd.read_parquet(_require(DATA_DIR / "counterfactual_flips.parquet"), use_threads=False)
     with open(_require(DATA_DIR / "baseline_metrics.json"), encoding="utf-8") as fh:
         metrics = json.load(fh)
 
