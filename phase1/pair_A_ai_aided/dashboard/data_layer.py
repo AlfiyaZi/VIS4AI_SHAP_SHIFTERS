@@ -142,76 +142,6 @@ def clustered_order(confusions: list[pd.DataFrame]) -> tuple[list[str], np.ndarr
     return [PATHWAYS[i] for i in leaves_list(z)], sym
 
 
-# ---------------------------------------------------------------------------
-# View 3: clusters on the UMAP and their driving feature
-# ---------------------------------------------------------------------------
-def _cramers_v(x: pd.Series, y: pd.Series) -> float:
-    ct = pd.crosstab(x, y).to_numpy(float)
-    if ct.shape[0] < 2 or ct.shape[1] < 2:
-        return 0.0
-    n = ct.sum()
-    expected = ct.sum(1, keepdims=True) @ ct.sum(0, keepdims=True) / n
-    chi2 = ((ct - expected) ** 2 / np.maximum(expected, 1e-12)).sum()
-    r, k = ct.shape
-    # Bergsma bias correction.
-    phi2 = max(0.0, chi2 / n - (k - 1) * (r - 1) / (n - 1))
-    rc, kc = r - (r - 1) ** 2 / (n - 1), k - (k - 1) ** 2 / (n - 1)
-    denom = min(kc - 1, rc - 1)
-    return float(np.sqrt(phi2 / denom)) if denom > 0 else 0.0
-
-
-def _correlation_ratio(labels: pd.Series, values: pd.Series) -> float:
-    v = values.astype(float).to_numpy()
-    total = ((v - v.mean()) ** 2).sum()
-    if total == 0:
-        return 0.0
-    between = sum(len(g) * (g.mean() - v.mean()) ** 2
-                  for _, g in pd.Series(v).groupby(labels.to_numpy()))
-    return float(np.sqrt(between / total))
-
-
-def umap_clusters(df: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame, pd.DataFrame]:
-    from sklearn.cluster import HDBSCAN
-
-    xy = df[["umap_x", "umap_y"]].to_numpy(np.float64)
-    key = hashlib.sha256(xy.tobytes()).hexdigest()[:16]
-    cache = CACHE_DIR / f"umap_clusters_{key}.npy"
-    if cache.exists():
-        labels = np.load(cache)
-    else:
-        min_size = max(100, len(df) // 60)
-        labels = HDBSCAN(min_cluster_size=min_size, min_samples=25).fit_predict(xy)
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        np.save(cache, labels)
-    labels = pd.Series(labels, index=df.index, name="cluster")
-
-    inside = labels >= 0
-    rows = []
-    for col in CATEGORICAL_DRIVERS:
-        rows.append((col, "categorical (Cramer's V)",
-                     _cramers_v(df.loc[inside, col].astype(str), labels[inside])))
-    for col in NUMERIC_DRIVERS:
-        rows.append((col, "numeric (correlation ratio)",
-                     _correlation_ratio(labels[inside], df.loc[inside, col])))
-    ranking = (pd.DataFrame(rows, columns=["feature", "kind", "association"])
-               .sort_values("association", ascending=False).reset_index(drop=True))
-
-    driver = ranking.iloc[0]["feature"]
-    summary = []
-    for c, g in df[inside].groupby(labels[inside]):
-        if driver in NUMERIC_DRIVERS:
-            text = f"{driver} median {g[driver].median():.0f}"
-        else:
-            vc = g[driver].astype(str).value_counts(normalize=True)
-            text = f"{vc.index[0]} ({vc.iloc[0]:.0%})"
-        summary.append({
-            "cluster": int(c), "x": g["umap_x"].median(), "y": g["umap_y"].median(),
-            "n": len(g), "label": text,
-            "disparity": g["agreement_disparity_b_minus_a"].mean(),
-        })
-    return labels, ranking, pd.DataFrame(summary)
-
-
 @lru_cache(maxsize=1)
 def load() -> DashboardData:
     df, metrics = load_tables()
@@ -222,9 +152,7 @@ def load() -> DashboardData:
         "majority": confusion_counts(true, df["majority_pred_pathway"]),
     }
     order, _ = clustered_order([confusion["model_a"], confusion["model_b"]])
-    labels, ranking, summary = umap_clusters(df)
-    df["umap_cluster"] = labels
     data = DashboardData(df=df, metrics=metrics, order=order, confusion=confusion,
-                         clusters=labels, driver_ranking=ranking, cluster_summary=summary)
+                         clusters=pd.Series(dtype=int), driver_ranking=pd.DataFrame(), cluster_summary=pd.DataFrame())
     data.pos = {eid: i for i, eid in enumerate(df.index)}
     return data

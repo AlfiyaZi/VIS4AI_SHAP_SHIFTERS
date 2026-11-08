@@ -1,409 +1,100 @@
-"""
-Callbacks for the Pair A (AI-aided) Phase I dashboard.
-Coordinates state management, selection revisions, and cross-filtering across Views 1, 2, 3, and 4.
-"""
-
-from __future__ import annotations
-
-from dash import Input, Output, State, ctx, dcc, html, no_update
+"""Callbacks for the six retained single-page Phase I analyses."""
+from dash import Input, Output, State, ctx, html, no_update
 import numpy as np
 import figures
 import data_layer
 
 
-def _extract_eid(pt: dict) -> int | None:
-    """Safely extract integer encounter_id from a Plotly point dictionary."""
-    if not pt or "customdata" not in pt or pt["customdata"] is None:
-        return None
-    cd = pt["customdata"]
-    if isinstance(cd, (list, tuple, np.ndarray)):
-        return int(cd[0]) if len(cd) > 0 else None
-    try:
-        return int(cd)
-    except (ValueError, TypeError):
-        return None
-
-
 def register_callbacks(app, data: data_layer.DashboardData):
-    df = data.df
+    df=data.df
 
-    # -----------------------------------------------------------------------
-    # Coordinated State: Cross-Filtering & Selection Revision Tracking
-    # -----------------------------------------------------------------------
-    @app.callback(
-        Output("store-selected-ids", "data"),
-        Output("store-active-cell", "data"),
-        Input("btn-reset", "n_clicks"),
-        Input("graph-view1-scatter", "selectedData"),
-        Input("graph-view3-umap", "selectedData"),
-        Input("graph-view2-model-a", "clickData"),
-        Input("graph-view2-model-b", "clickData"),
-        Input("graph-view2-majority", "clickData"),
-        State("store-active-cell", "data"),
-    )
-    def handle_cross_selection(
-        reset_clicks,
-        v1_sel,
-        v3_sel,
-        v2_click_a,
-        v2_click_b,
-        v2_click_maj,
-        prev_state,
-    ):
-        prev = prev_state or {"v1_rev": 0, "v3_rev": 0}
-        v1_rev = int(prev.get("v1_rev", 0))
-        v3_rev = int(prev.get("v3_rev", 0))
+    @app.callback(Output('store-selected-ids','data'),Output('store-active-cell','data'),
+        Input('btn-reset','n_clicks'),Input('graph-view2-model-a','clickData'),Input('graph-view2-model-b','clickData'),
+        State('store-active-cell','data'))
+    def select_group(reset, click_a, click_b, prev):
+        trig=ctx.triggered_id
+        if not trig or trig=='btn-reset':
+            return None,None
+        model='model_a' if trig=='graph-view2-model-a' else 'model_b'
+        clicked=click_a if model=='model_a' else click_b
+        if not clicked or not clicked.get('points') or clicked['points'][0].get('customdata') is None:
+            return no_update,no_update
+        t,p=clicked['points'][0]['customdata'][:2]
+        active={'model':model,'true':str(t),'pred':str(p)}
+        if prev==active:
+            return None,None
+        mask=(df.true_next_pathway==t)&(df[f'{model}_pred_pathway']==p)
+        return [int(e) for e in df.index[mask]],active
 
-        triggered = ctx.triggered_id
+    @app.callback(Output('selection-status','children'),Input('store-selected-ids','data'))
+    def status(ids):
+        return f"Selected: {len(ids):,} encounters (click the same cell again or Clear selection to reset)" if ids is not None else "Showing full cohort"
 
-        # 1. Initial page load
-        if not triggered:
-            return None, {"source": "reset", "v1_rev": 0, "v3_rev": 0}
+    @app.callback(Output('graph-view2-model-a','figure'),Output('graph-view2-model-b','figure'),Input('store-active-cell','data'))
+    def confusion(active):
+        hl_a=(active['true'],active['pred']) if active and active['model']=='model_a' else None
+        hl_b=(active['true'],active['pred']) if active and active['model']=='model_b' else None
+        return figures.confusion_heatmap(data,'model_a',True,False,hl_a),figures.confusion_heatmap(data,'model_b',True,False,hl_b)
 
-        # 2. Reset button explicitly clicked
-        if triggered == "btn-reset":
-            return None, {"source": "reset", "v1_rev": v1_rev + 1, "v3_rev": v3_rev + 1}
+    @app.callback(Output('graph-diag-disparity','figure'),Input('store-selected-ids','data'),Input('diag-disparity-slice','value'))
+    def disagreement(ids, slice_by):
+        return figures.disparity_battle(data,set(ids) if ids is not None else None,slice_by or 'age')
 
-        # 3. View 1 Scatter Lasso/Box selection
-        if triggered == "graph-view1-scatter":
-            if v1_sel and "points" in v1_sel and len(v1_sel["points"]) > 0:
-                eids = [_extract_eid(p) for p in v1_sel["points"]]
-                valid_eids = list(dict.fromkeys(e for e in eids if e is not None and e in df.index))
-                if valid_eids:
-                    # Keep v1_rev steady so View 1 selection stays aligned; bump v3_rev to clear stale View 3 box
-                    return valid_eids, {"source": "scatter", "v1_rev": v1_rev, "v3_rev": v3_rev + 1}
-            # When figure updates or user clears without button, do not automatically wipe state
-            return no_update, no_update
+    @app.callback(Output('encounter-inspect-dropdown','options'),Output('encounter-inspect-dropdown','value'),
+        Input('inspector-case-type','value'),Input('store-selected-ids','data'),State('encounter-inspect-dropdown','value'))
+    def inspector_options(case_type,ids,current):
+        sub=df.loc[df.index.isin(ids)] if ids is not None else df
+        a=sub.model_a_correct.astype(bool); b=sub.model_b_correct.astype(bool)
+        if case_type=='a_wins': sub=sub[a & ~b]
+        elif case_type=='b_wins': sub=sub[b & ~a]
+        elif case_type=='both_wrong': sub=sub[~a & ~b]
+        if sub.empty:
+            return [],None
+        # A searchable list of representative encounters, plus the current ID if valid.
+        chosen=[int(e) for e in sub.index[:300]]
+        if current is not None and current in sub.index and int(current) not in chosen:
+            chosen.insert(0,int(current))
+        options=[{'label':f"#{eid} · {df.loc[eid,'age']} · {df.loc[eid,'true_next_pathway']}",'value':eid} for eid in chosen]
+        return options,int(current) if current in chosen else chosen[0]
 
-        # 4. View 3 UMAP Lasso/Box selection
-        if triggered == "graph-view3-umap":
-            if v3_sel and "points" in v3_sel and len(v3_sel["points"]) > 0:
-                eids = [_extract_eid(p) for p in v3_sel["points"]]
-                valid_eids = list(dict.fromkeys(e for e in eids if e is not None and e in df.index))
-                if valid_eids:
-                    # Keep v3_rev steady so View 3 lasso stays aligned; bump v1_rev to clear stale View 1 box
-                    return valid_eids, {"source": "umap", "v1_rev": v1_rev + 1, "v3_rev": v3_rev}
-            # When figure updates or user clears without button, do not automatically wipe state
-            return no_update, no_update
+    @app.callback(Output('retrieval-inspector','children'),Input('encounter-inspect-dropdown','value'))
+    def inspector(eid):
+        if eid is None or eid not in df.index:
+            return html.P('No encounters match this selection. Clear the confusion-matrix filter or change example type.')
+        row=df.loc[eid]
+        ids_a=[int(v) for v in row.model_a_neighbors]
+        ids_b=[int(v) for v in row.model_b_neighbors]
+        overlap=set(ids_a)&set(ids_b)
+        def make_table(model,neighbors):
+            distances=row[f'{model}_distances']
+            rows=[]
+            for rank,(nid,dist) in enumerate(zip(neighbors,distances),start=1):
+                nb=df.loc[nid]
+                rows.append(html.Tr([
+                    html.Td(str(rank)),html.Td(str(nid)),html.Td(f'{1-float(dist):.3f}'),
+                    html.Td(str(nb.true_next_pathway)),html.Td('Shared' if nid in overlap else '—')],
+                    style={'backgroundColor':'#EAF6EF' if nid in overlap else 'white'}))
+            return html.Div(style={'minWidth':'0'},children=[
+                html.H4('Model A · Tabular' if model=='model_a' else 'Model B · ClinicalBERT',style={'margin':'6px 0'}),
+                html.P(f"Prediction: {row[f'{model}_pred_pathway']} · Vote share: {row[f'{model}_vote_share']:.0%}",style={'fontSize':'13px'}),
+                html.Div(style={'overflowX':'auto'},children=[html.Table(style={'borderCollapse':'collapse','width':'100%','fontSize':'12px'},children=[
+                    html.Thead(html.Tr([html.Th(s,style={'textAlign':'left','padding':'6px'}) for s in ['Rank','Encounter','Cosine sim.','Neighbor next pathway','Overlap']])),
+                    html.Tbody(rows)])])])
+        return html.Div([
+            html.P([html.Strong(f'Encounter #{eid}'),f" · Patient #{int(row.patient_nbr)} · {row.gender}, {row.age} · Actual next pathway: {row.true_next_pathway}"]),
+            html.P(f"Shared neighbors: {len(overlap)} / 10. Green rows appear in both lists. Similarity = 1 − saved cosine distance.",style={'fontSize':'12px','color':'#596575'}),
+            html.Div(style={'display':'grid','gridTemplateColumns':'repeat(2,minmax(0,1fr))','gap':'20px'},children=[make_table('model_a',ids_a),make_table('model_b',ids_b)]),
+            html.Details([html.Summary('Show ClinicalBERT input text'),html.P(str(row.model_text),style={'fontFamily':'monospace','fontSize':'12px'})],style={'marginTop':'14px'}),
+        ])
 
-        # 5. View 2 Confusion Matrix Cell Click
-        for click, model, comp_id in [
-            (v2_click_a, "model_a", "graph-view2-model-a"),
-            (v2_click_b, "model_b", "graph-view2-model-b"),
-            (v2_click_maj, "majority", "graph-view2-majority"),
-        ]:
-            if triggered == comp_id and click and "points" in click:
-                pt = click["points"][0]
-                if "customdata" in pt and pt["customdata"] is not None:
-                    cd = pt["customdata"]
-                    true_cat = str(cd[0])
-                    pred_cat = str(cd[1])
-                    # Toggle off if clicking the exact same active cell again
-                    if (
-                        prev.get("source") == "confusion"
-                        and prev.get("model") == model
-                        and prev.get("true") == true_cat
-                        and prev.get("pred") == pred_cat
-                    ):
-                        return None, {"source": "reset", "v1_rev": v1_rev + 1, "v3_rev": v3_rev + 1}
+    @app.callback(Output('graph-view4-flips','figure'),Input('store-selected-ids','data'))
+    def sensitivity(ids):
+        return figures.flips_view(data,set(ids) if ids is not None else None)
 
-                    pred_col = "majority_pred_pathway" if model == "majority" else f"{model}_pred_pathway"
-                    mask = (df["true_next_pathway"] == true_cat) & (df[pred_col] == pred_cat)
-                    eids = [int(e) for e in df.index[mask]]
-                    return (
-                        eids,
-                        {
-                            "source": "confusion",
-                            "true": true_cat,
-                            "pred": pred_cat,
-                            "model": model,
-                            "v1_rev": v1_rev + 1,
-                            "v3_rev": v3_rev + 1,
-                        },
-                    )
+    @app.callback(Output('graph-diag-calibration','figure'),Input('store-selected-ids','data'))
+    def reliability(ids):
+        return figures.calibration_curve(data,set(ids) if ids is not None else None)
 
-        return no_update, no_update
-
-    # -----------------------------------------------------------------------
-    # Status Badge
-    # -----------------------------------------------------------------------
-    @app.callback(
-        Output("selection-status-badge", "children"),
-        Input("store-selected-ids", "data"),
-        Input("store-active-cell", "data"),
-    )
-    def update_status_badge(selected_ids, active_cell):
-        if not selected_ids:
-            return html.Span(
-                f"● Showing Full Cohort ({len(df):,} hospital stays across {df['patient_nbr'].nunique():,} patients)",
-                style={"color": "#198754", "fontWeight": "600", "fontSize": "12.5px"},
-            )
-        n = len(selected_ids)
-        pct = (n / len(df)) * 100.0
-
-        source = (active_cell or {}).get("source", "")
-        if source == "confusion":
-            m_label = data_layer.MODELS.get(active_cell.get("model", ""), active_cell.get("model", ""))
-            desc = f"View 2 Cell: True '{active_cell['true']}' → Predicted '{active_cell['pred']}' ({m_label})"
-        elif source == "scatter":
-            desc = "View 1 Scatter Lasso / Box Selection"
-        elif source == "umap":
-            desc = "View 3 UMAP Lasso / Box Selection"
-        else:
-            desc = "Active Cohort Filter"
-
-        return html.Span(
-            f"🔍 Active Filter: {n:,} of {len(df):,} visits ({pct:.1f}%) — {desc}",
-            style={"color": "#0D6EFD", "fontWeight": "700", "fontSize": "12.5px"},
-        )
-
-    # -----------------------------------------------------------------------
-    # View 1: Jittered Multi-Channel Scatter Explorer
-    # -----------------------------------------------------------------------
-    @app.callback(
-        Output("graph-view1-scatter", "figure"),
-        Input("store-selected-ids", "data"),
-        Input("store-active-cell", "data"),
-        Input("v1-model-x", "value"),
-        Input("v1-options", "value"),
-    )
-    def render_view1(selected_ids, active_cell, model_x, options):
-        selected_set = set(selected_ids) if selected_ids else None
-        jitter = "jitter" in (options or [])
-        contours = "contours" in (options or [])
-        v1_rev = str((active_cell or {}).get("v1_rev", 0))
-        return figures.scatter_explorer(
-            data,
-            selected_set,
-            model_x or "model_b",
-            jitter,
-            contours,
-            uirevision_key=v1_rev,
-        )
-
-    # -----------------------------------------------------------------------
-    # View 2: Reordered Error & Confusion Breakdown Matrix
-    # -----------------------------------------------------------------------
-    @app.callback(
-        Output("graph-view2-model-a", "figure"),
-        Output("graph-view2-model-b", "figure"),
-        Output("graph-view2-majority", "figure"),
-        Input("v2-options", "value"),
-        Input("store-active-cell", "data"),
-    )
-    def render_view2(options, active_cell):
-        clustered = "clustered" in (options or [])
-        normalize = "normalize" in (options or [])
-        is_conf = active_cell and active_cell.get("source") == "confusion"
-        hl_a = (active_cell["true"], active_cell["pred"]) if (is_conf and active_cell.get("model") == "model_a") else None
-        hl_b = (active_cell["true"], active_cell["pred"]) if (is_conf and active_cell.get("model") == "model_b") else None
-        hl_maj = (active_cell["true"], active_cell["pred"]) if (is_conf and active_cell.get("model") == "majority") else None
-
-        fig_a = figures.confusion_heatmap(data, "model_a", normalize, clustered, hl_a)
-        fig_b = figures.confusion_heatmap(data, "model_b", normalize, clustered, hl_b)
-        fig_maj = figures.confusion_heatmap(data, "majority", normalize, clustered, hl_maj)
-        return fig_a, fig_b, fig_maj
-
-    # -----------------------------------------------------------------------
-    # View 3: Input-Space UMAP & Longitudinal Trajectories
-    # -----------------------------------------------------------------------
-    @app.callback(
-        Output("graph-view3-umap", "figure"),
-        Input("store-selected-ids", "data"),
-        Input("store-active-cell", "data"),
-        Input("v3-color-mode", "value"),
-        Input("v3-traj-toggle", "value"),
-    )
-    def render_view3(selected_ids, active_cell, color_mode, traj_options):
-        selected_set = set(selected_ids) if selected_ids else None
-        show_traj = "traj" in (traj_options or [])
-        annotate = "annot" in (traj_options or [])
-        v3_rev = str((active_cell or {}).get("v3_rev", 0))
-        return figures.umap_view(
-            data,
-            selected_set,
-            color_mode or "driver",
-            show_traj,
-            n_patients=30,
-            annotate=annotate,
-            uirevision_key=v3_rev,
-        )
-
-    # -----------------------------------------------------------------------
-    # View 4: Counterfactual Neighbor Flips
-    # -----------------------------------------------------------------------
-    @app.callback(
-        Output("graph-view4-flips", "figure"),
-        Input("store-selected-ids", "data"),
-    )
-    def render_view4_flips(selected_ids):
-        selected_set = set(selected_ids) if selected_ids else None
-        return figures.flips_view(data, selected_set)
-
-    # -----------------------------------------------------------------------
-    # View 4: Patient Inspector Card
-    # -----------------------------------------------------------------------
-    @app.callback(
-        Output("view4-inspector-card", "children"),
-        Input("encounter-inspect-dropdown", "value"),
-        Input("graph-view1-scatter", "clickData"),
-        Input("graph-view3-umap", "clickData"),
-    )
-    def render_patient_inspector(dropdown_eid, v1_click, v3_click):
-        eid = dropdown_eid
-        triggered = ctx.triggered_id
-        if triggered == "graph-view1-scatter" and v1_click and "points" in v1_click:
-            extracted = _extract_eid(v1_click["points"][0])
-            if extracted is not None:
-                eid = extracted
-        elif triggered == "graph-view3-umap" and v3_click and "points" in v3_click:
-            extracted = _extract_eid(v3_click["points"][0])
-            if extracted is not None:
-                eid = extracted
-
-        if eid not in df.index:
-            eid = int(df.index[0])
-
-        row = df.loc[eid]
-        neigh_fig = figures.neighbor_breakdown(data, eid)
-        true_pathway = str(row["true_next_pathway"])
-        pred_a = str(row["model_a_pred_pathway"])
-        pred_b = str(row["model_b_pred_pathway"])
-        ok_a = "✅" if pred_a == true_pathway else "❌"
-        ok_b = "✅" if pred_b == true_pathway else "❌"
-
-        return html.Div(
-            style={
-                "backgroundColor": "#F8F9FA",
-                "borderRadius": "8px",
-                "border": "1px solid #DEE2E6",
-                "padding": "12px 14px",
-            },
-            children=[
-                html.Div(
-                    style={
-                        "display": "flex",
-                        "justifyContent": "space-between",
-                        "alignItems": "center",
-                        "flexWrap": "wrap",
-                        "gap": "8px",
-                        "marginBottom": "8px",
-                    },
-                    children=[
-                        html.Div([
-                            html.Strong(f"Active Patient Dossier: Encounter #{int(eid)}", style={"fontSize": "14px", "color": "#1D3557"}),
-                            html.Span(
-                                f" (Patient #{int(row['patient_nbr'])}, Stay #{int(row['visit_index'])} of {int(row['n_visits_patient'])})",
-                                style={"fontSize": "12px", "color": "#6C757D"},
-                            ),
-                        ]),
-                        html.Div([
-                            html.Span("True Next Pathway: ", style={"fontSize": "11.5px", "color": "#495057", "fontWeight": "600"}),
-                            html.Span(
-                                true_pathway,
-                                style={
-                                    "backgroundColor": data_layer.PATHWAY_COLORS.get(true_pathway, "#666"),
-                                    "color": "#FFFFFF",
-                                    "padding": "3px 9px",
-                                    "borderRadius": "4px",
-                                    "fontWeight": "700",
-                                    "fontSize": "11.5px",
-                                },
-                            ),
-                        ]),
-                    ],
-                ),
-                # Serialized Clinical Note
-                html.Div(
-                    style={
-                        "backgroundColor": "#FFFFFF",
-                        "padding": "7px 10px",
-                        "borderRadius": "5px",
-                        "border": "1px solid #E9ECEF",
-                        "fontSize": "11px",
-                        "color": "#343A40",
-                        "marginBottom": "8px",
-                        "fontFamily": "Consolas, Monaco, monospace",
-                        "lineHeight": "1.35",
-                    },
-                    children=[
-                        html.Strong("Bio_ClinicalBERT Prompt: ", style={"color": "#1D3557"}),
-                        html.Span(f"\"{row['model_text']}\""),
-                    ],
-                ),
-                # 10 Retrieved Neighbors Stacked Bar Chart
-                dcc.Graph(figure=neigh_fig, config={"displayModeBar": False, "displaylogo": False}),
-                # Clinical Vitals & Predictions Grid
-                html.Div(
-                    style={
-                        "display": "grid",
-                        "gridTemplateColumns": "repeat(4, 1fr)",
-                        "gap": "6px",
-                        "marginTop": "8px",
-                        "fontSize": "11px",
-                        "backgroundColor": "#FFFFFF",
-                        "padding": "8px 10px",
-                        "borderRadius": "5px",
-                        "border": "1px solid #E9ECEF",
-                    },
-                    children=[
-                        html.Div([html.Strong("Model A Vote: "), html.Span(f"{ok_a} {pred_a.split(' ')[0]} ({row['model_a_agreement']:.0%})")]),
-                        html.Div([html.Strong("Model B Vote: "), html.Span(f"{ok_b} {pred_b.split(' ')[0]} ({row['model_b_agreement']:.0%})")]),
-                        html.Div([html.Strong("Sex / Age: "), html.Span(f"{row['gender']} / {row['age']}")]),
-                        html.Div([html.Strong("Stay / Diagnoses: "), html.Span(f"{row['time_in_hospital']}d / {row['number_diagnoses']} diag")]),
-                        html.Div([html.Strong("Max Glucose: "), html.Span(f"{row['max_glu_serum']}")]),
-                        html.Div([html.Strong("HbA1c Result: "), html.Span(f"{row['A1Cresult']}")]),
-                        html.Div([html.Strong("Insulin Regimen: "), html.Span(f"{row['insulin']}")]),
-                        html.Div([html.Strong("Med Change: "), html.Span(f"{row['change']} (DiabMed: {row['diabetesMed']})")]),
-                    ],
-                ),
-            ],
-        )
-
-    # -----------------------------------------------------------------------
-    # Tab 2: Calibration, Disparity Battleground & Subgroup Fairness
-    # -----------------------------------------------------------------------
-    @app.callback(
-        Output("graph-diag-calibration", "figure"),
-        Input("store-selected-ids", "data"),
-    )
-    def render_calibration(selected_ids):
-        selected_set = set(selected_ids) if selected_ids else None
-        return figures.calibration_curve(data, selected_set)
-
-    @app.callback(
-        Output("graph-diag-disparity", "figure"),
-        Input("store-selected-ids", "data"),
-        Input("diag-disparity-slice", "value"),
-    )
-    def render_disparity_battle(selected_ids, slice_by):
-        selected_set = set(selected_ids) if selected_ids else None
-        return figures.disparity_battle(data, selected_set, slice_by or "age")
-
-    @app.callback(
-        Output("graph-diag-subgroup", "figure"),
-        Input("store-selected-ids", "data"),
-        Input("diag-subgroup-group", "value"),
-    )
-    def render_subgroup_fairness(selected_ids, group_by):
-        selected_set = set(selected_ids) if selected_ids else None
-        return figures.subgroup_fairness(data, selected_set, group_by or "race")
-
-    # -----------------------------------------------------------------------
-    # Tab 3: Dynamic Cohort Profiler (Selection vs. Hospital Baseline)
-    # -----------------------------------------------------------------------
-    @app.callback(
-        Output("graph-profile-vitals", "figure"),
-        Input("store-selected-ids", "data"),
-    )
-    def render_cohort_profiler(selected_ids):
-        selected_set = set(selected_ids) if selected_ids else None
-        return figures.cohort_profiler(data, selected_set)
-
-    @app.callback(
-        Output("graph-profile-pathways", "figure"),
-        Input("store-selected-ids", "data"),
-    )
-    def render_cohort_pathways(selected_ids):
-        selected_set = set(selected_ids) if selected_ids else None
-        return figures.cohort_pathway_breakdown(data, selected_set)
+    @app.callback(Output('graph-diag-subgroup','figure'),Input('store-selected-ids','data'),Input('diag-subgroup-group','value'))
+    def subgroup(ids,group):
+        return figures.subgroup_fairness(data,set(ids) if ids is not None else None,group or 'race')

@@ -44,143 +44,7 @@ def _selected_positions(ids_in_trace: list[int], selected: set[int] | None) -> l
     return [i for i, eid in enumerate(ids_in_trace) if eid in selected]
 
 
-# ---------------------------------------------------------------------------
-# View 1: Jittered Multi-Channel Scatter Explorer
-# ---------------------------------------------------------------------------
-def scatter_explorer(
-    data: DashboardData,
-    selected: set[int] | None,
-    x_model: str,
-    jitter: bool,
-    contours: bool,
-    uirevision_key: str = "0",
-) -> go.Figure:
-    df = data.df
-    xcol = f"{x_model}_agreement"
-    xlab = "Model B (Bio_ClinicalBERT)" if x_model == "model_b" else "Model A (Tabular KNN)"
-
-    fig = make_subplots(
-        rows=1,
-        cols=len(PATHWAYS),
-        shared_yaxes=True,
-        horizontal_spacing=0.035,
-        subplot_titles=[
-            f"<b>{PATHWAY_SHORT[p]}</b> (n={int((df['true_next_pathway'] == p).sum()):,})"
-            for p in PATHWAYS
-        ],
-    )
-
-    for col_idx, pathway in enumerate(PATHWAYS, start=1):
-        sub = df[df["true_next_pathway"] == pathway]
-        if len(sub) == 0:
-            continue
-
-        for a1c in A1C_ORDER:
-            sub_a1c = sub[sub["A1Cresult"] == a1c]
-            if len(sub_a1c) == 0:
-                continue
-
-            x_vals = (sub_a1c[xcol] + (sub_a1c["jitter_x"] if jitter else 0.0)).round(4).tolist()
-            y_vals = (sub_a1c["number_diagnoses"] + (sub_a1c["jitter_y"] if jitter else 0.0)).round(3).tolist()
-            ids = [int(e) for e in sub_a1c.index]
-            symbols = [SEX_SYMBOLS.get(g, "circle") for g in sub_a1c["gender"]]
-            hover_text = [
-                f"Sex: {g} | Age: {a} | HbA1c: {a1c}"
-                for g, a in zip(sub_a1c["gender"], sub_a1c["age"])
-            ]
-
-            fig.add_trace(
-                go.Scattergl(
-                    x=x_vals,
-                    y=y_vals,
-                    mode="markers",
-                    name=f"HbA1c: {a1c}",
-                    legendgroup=f"a1c-{a1c}",
-                    showlegend=(col_idx == 1),
-                    customdata=ids,
-                    text=hover_text,
-                    marker=dict(
-                        color=A1C_COLORS.get(a1c, "#BDBDBD"),
-                        symbol=symbols,
-                        size=5,
-                        opacity=0.68,
-                        line=dict(width=0),
-                    ),
-                    selectedpoints=_selected_positions(ids, selected),
-                    selected=dict(marker=dict(opacity=0.95, size=6.5)),
-                    unselected=dict(marker=dict(opacity=DIM_OPACITY)),
-                    hovertemplate=(
-                        "<b>Encounter #%{customdata}</b><br>"
-                        f"True Outcome: {pathway}<br>"
-                        f"{xlab} Agreement: %{{x:.2f}}<br>"
-                        "Diagnoses Count: %{y:.0f}<br>"
-                        "%{text}<extra></extra>"
-                    ),
-                ),
-                row=1,
-                col=col_idx,
-            )
-
-        if contours and len(sub) > 40:
-            cx = (sub[xcol] + sub["jitter_x"]).round(4).tolist()
-            cy = (sub["number_diagnoses"] + sub["jitter_y"]).round(3).tolist()
-            fig.add_trace(
-                go.Histogram2dContour(
-                    x=cx,
-                    y=cy,
-                    ncontours=7,
-                    contours=dict(coloring="none"),
-                    showscale=False,
-                    line=dict(color="rgba(30,30,30,0.55)", width=1),
-                    hoverinfo="skip",
-                    showlegend=False,
-                    xbins=dict(size=0.1),
-                    ybins=dict(size=1),
-                ),
-                row=1,
-                col=col_idx,
-            )
-
-        fig.update_xaxes(
-            range=[-0.08, 1.08],
-            tickvals=[0.0, 0.5, 1.0],
-            ticktext=["0%", "50%", "100%"],
-            tickfont=dict(size=10),
-            title_text="Neighbor Agreement (Vote Share)" if col_idx == 2 else None,
-            title_font=dict(size=11),
-            row=1,
-            col=col_idx,
-            **GRID,
-        )
-        fig.update_yaxes(
-            range=[0, 17],
-            dtick=4,
-            row=1,
-            col=col_idx,
-            **GRID,
-        )
-
-    fig.update_yaxes(title_text="Diagnoses Count (Comorbidity)", row=1, col=1)
-    fig.update_layout(
-        **{**BASE_LAYOUT, "margin": dict(l=52, r=14, t=34, b=58)},
-        height=390,
-        dragmode="lasso",
-        uirevision=f"scatter-{x_model}-{uirevision_key}",
-        legend=dict(
-            orientation="h",
-            y=-0.18,
-            x=0.0,
-            font=dict(size=11),
-            itemsizing="constant",
-            title=dict(text="Color (● Female, ◆ Male): ", font=dict(size=11)),
-        ),
-    )
-    return fig
-
-
-# ---------------------------------------------------------------------------
-# View 2: Reordered Error & Confusion Breakdown Matrix
-# ---------------------------------------------------------------------------
+# Confusion matrices
 def confusion_heatmap(
     data: DashboardData,
     model: str,
@@ -194,7 +58,7 @@ def confusion_heatmap(
     z_mat = (rates if normalize else counts).to_numpy(dtype=float).tolist()
 
     text = [
-        [f"<b>{rates.iat[i, j]:.0%}</b><br>{int(counts.iat[i, j]):,}" for j in range(len(order))]
+        [f"{rates.iat[i, j]:.0%}" for j in range(len(order))]
         for i in range(len(order))
     ]
     short = [PATHWAY_SHORT[p] for p in order]
@@ -218,7 +82,7 @@ def confusion_heatmap(
             y=short,
             text=text,
             texttemplate="%{text}",
-            textfont=dict(size=10, family="Inter, system-ui, sans-serif"),
+            textfont=dict(size=13, family="Inter, system-ui, sans-serif"),
             colorscale="Blues",
             showscale=False,
             zmin=0,
@@ -269,8 +133,8 @@ def confusion_heatmap(
     left_margin = 56 if show_y_title else 42
 
     fig.update_layout(
-        **{**BASE_LAYOUT, "margin": dict(l=left_margin, r=6, t=46, b=44)},
-        height=390,
+        **{**BASE_LAYOUT, "margin": dict(l=left_margin + 14, r=12, t=55, b=65)},
+        height=440,
         title=dict(
             text=(
                 f"<b>{short_titles.get(model, MODELS[model])}</b><br>"
@@ -279,229 +143,18 @@ def confusion_heatmap(
             x=0.02,
             font=dict(size=12),
         ),
-        xaxis=dict(title=dict(text="Predicted", font=dict(size=10.5)), side="bottom", tickfont=dict(size=9.5)),
+        xaxis=dict(title=dict(text="Predicted", font=dict(size=10.5)), side="bottom", tickfont=dict(size=11)),
         yaxis=dict(
             title=dict(text="True Pathway" if show_y_title else None, font=dict(size=10.5)),
             autorange="reversed",
-            tickfont=dict(size=9.5),
+            tickfont=dict(size=11),
         ),
     )
     return fig
 
 
-# ---------------------------------------------------------------------------
-# View 3: Input-Space UMAP & Longitudinal Trajectories
-# ---------------------------------------------------------------------------
-UMAP_COLOR_MODES = {
-    "driver": "Primary Driver ('change')",
-    "true_next_pathway": "True Next Pathway",
-    "disparity": "Agreement Disparity (B - A)",
-    "model_a_agreement": "Model A Agreement",
-    "model_b_agreement": "Model B Agreement",
-    "umap_cluster": "HDBSCAN Cluster",
-}
 
-
-def umap_view(
-    data: DashboardData,
-    selected: set[int] | None,
-    color_mode: str,
-    show_traj: bool,
-    n_patients: int,
-    annotate: bool,
-    uirevision_key: str = "0",
-) -> go.Figure:
-    df = data.df
-    fig = go.Figure()
-    driver = str(data.driver_ranking.iloc[0]["feature"])
-
-    # Compute fixed axis bounds with 6% padding so the UMAP viewport is always stable and complete
-    xmin, xmax = float(df["umap_x"].min()), float(df["umap_x"].max())
-    ymin, ymax = float(df["umap_y"].min()), float(df["umap_y"].max())
-    xpad = (xmax - xmin) * 0.06
-    ypad = (ymax - ymin) * 0.06
-    x_range = [xmin - xpad, xmax + xpad]
-    y_range = [ymin - ypad, ymax + ypad]
-
-    # Continuous color scales
-    if color_mode in ("disparity", "model_a_agreement", "model_b_agreement"):
-        col = "agreement_disparity_b_minus_a" if color_mode == "disparity" else color_mode
-        is_div = color_mode == "disparity"
-        ids = [int(e) for e in df.index]
-        c_vals = df[col].round(4).tolist()
-
-        fig.add_trace(
-            go.Scattergl(
-                x=df["umap_x"].round(4).tolist(),
-                y=df["umap_y"].round(4).tolist(),
-                mode="markers",
-                name=UMAP_COLOR_MODES.get(color_mode, color_mode),
-                customdata=ids,
-                marker=dict(
-                    color=c_vals,
-                    colorscale="RdBu" if is_div else "Viridis",
-                    cmin=-1.0 if is_div else 0.0,
-                    cmax=1.0,
-                    cmid=0.0 if is_div else None,
-                    size=4.5,
-                    opacity=0.72,
-                    colorbar=dict(
-                        title=dict(text="B − A" if is_div else "Agree", side="right"),
-                        thickness=12,
-                        len=0.78,
-                    ),
-                ),
-                selectedpoints=_selected_positions(ids, selected),
-                selected=dict(marker=dict(opacity=0.95, size=6)),
-                unselected=dict(marker=dict(opacity=DIM_OPACITY)),
-                hovertemplate=(
-                    "<b>Encounter #%{customdata}</b><br>"
-                    f"{UMAP_COLOR_MODES.get(color_mode, color_mode)}: %{{marker.color:.2f}}"
-                    "<extra></extra>"
-                ),
-                showlegend=False,
-            )
-        )
-    else:
-        # Categorical color mapping using real per-category Scattergl traces
-        if color_mode == "true_next_pathway":
-            categories = PATHWAYS
-            palette = PATHWAY_COLORS
-            key_series = df["true_next_pathway"].astype(str)
-            label_prefix = "True Next Pathway"
-        elif color_mode == "umap_cluster":
-            key_series = df["umap_cluster"].map(lambda c: "noise" if c < 0 else f"C{int(c)}")
-            categories = sorted(key_series.unique(), key=lambda s: (s == "noise", len(s), s))
-            palette = _qualitative(categories)
-            label_prefix = "HDBSCAN Cluster"
-        else:
-            raw_key = df[driver].astype(str)
-            top = raw_key.value_counts().index[:9].tolist()
-            key_series = raw_key.where(raw_key.isin(top), "other values")
-            categories = top + (["other values"] if (key_series == "other values").any() else [])
-            palette = _qualitative(categories)
-            label_prefix = f"Primary Driver ({driver})"
-
-        for cat in categories:
-            sub = df[key_series == cat]
-            if len(sub) == 0:
-                continue
-            sub_ids = [int(e) for e in sub.index]
-            fig.add_trace(
-                go.Scattergl(
-                    x=sub["umap_x"].round(4).tolist(),
-                    y=sub["umap_y"].round(4).tolist(),
-                    mode="markers",
-                    name=f"{cat} (n={len(sub):,})",
-                    customdata=sub_ids,
-                    marker=dict(
-                        color=palette.get(cat, "#ADB5BD"),
-                        size=4.5,
-                        opacity=0.72,
-                    ),
-                    selectedpoints=_selected_positions(sub_ids, selected),
-                    selected=dict(marker=dict(opacity=0.95, size=6)),
-                    unselected=dict(marker=dict(opacity=DIM_OPACITY)),
-                    hovertemplate=(
-                        "<b>Encounter #%{customdata}</b><br>"
-                        f"{label_prefix}: <b>{cat}</b>"
-                        "<extra></extra>"
-                    ),
-                )
-            )
-
-    if show_traj:
-        _add_trajectories(fig, df, selected, n_patients)
-
-    if annotate and len(data.cluster_summary):
-        for _, r in data.cluster_summary.iterrows():
-            fig.add_annotation(
-                x=float(r["x"]),
-                y=float(r["y"]),
-                text=f"<b>C{int(r['cluster'])}</b>: {r['label']}",
-                showarrow=False,
-                font=dict(size=10, color="#1D3557"),
-                bgcolor="rgba(255,255,255,0.88)",
-                bordercolor="#ADB5BD",
-                borderwidth=1,
-                borderpad=3,
-            )
-
-    fig.update_layout(
-        **{**BASE_LAYOUT, "margin": dict(l=16, r=16, t=16, b=52)},
-        height=430,
-        dragmode="lasso",
-        uirevision=f"umap-{color_mode}-{uirevision_key}",
-        xaxis=dict(range=x_range, showticklabels=False, title=None, **GRID),
-        yaxis=dict(range=y_range, showticklabels=False, title=None, **GRID),
-        legend=dict(
-            font=dict(size=11),
-            orientation="h",
-            y=-0.06,
-            x=0.0,
-            itemsizing="constant",
-        ),
-    )
-    return fig
-
-
-def _qualitative(groups: list[str]) -> dict[str, str]:
-    base = [
-        "#2A9D8F",
-        "#E76F51",
-        "#457B9D",
-        "#F4A261",
-        "#E63946",
-        "#8E6CBF",
-        "#52B788",
-        "#DDA15E",
-        "#BC6C25",
-    ]
-    out = {g: base[i % len(base)] for i, g in enumerate(groups)}
-    for g in ("noise", "other values"):
-        if g in out:
-            out[g] = "#ADB5BD"
-    return out
-
-
-def _add_trajectories(fig: go.Figure, df: pd.DataFrame, selected: set[int] | None, n: int):
-    """Directed V1 -> V2 -> V3 paths of repeat admissions."""
-    counts = df.groupby("patient_nbr")["encounter_id"].transform("size")
-    multi = df[counts >= 2]
-    if selected:
-        pids = multi.loc[multi.index.isin(selected), "patient_nbr"].unique()
-    else:
-        pids = multi["patient_nbr"].unique()
-    if len(pids) > n:
-        pids = np.random.default_rng(3).choice(pids, size=n, replace=False)
-
-    paths = multi[multi["patient_nbr"].isin(set(pids))].sort_values(["patient_nbr", "visit_index"])
-    xs, ys, txt = [], [], []
-    for pid, g in paths.groupby("patient_nbr", sort=False):
-        xs += g["umap_x"].round(4).tolist() + [None]
-        ys += g["umap_y"].round(4).tolist() + [None]
-        txt += [
-            f"Patient #{int(pid)}, Visit #{int(v)} (Encounter #{int(eid)})"
-            for v, eid in zip(g["visit_index"], g.index)
-        ] + [None]
-
-    fig.add_trace(
-        go.Scatter(
-            x=xs,
-            y=ys,
-            mode="lines+markers",
-            name=f"Trajectories ({len(pids)} pts)",
-            line=dict(color="rgba(29, 53, 87, 0.55)", width=1.4),
-            marker=dict(symbol="arrow", angleref="previous", size=8, color="rgba(29, 53, 87, 0.85)"),
-            text=txt,
-            hovertemplate="%{text}<extra></extra>",
-        )
-    )
-
-
-# ---------------------------------------------------------------------------
-# View 4: Counterfactual Neighbor Flips & Patient Inspector
-# ---------------------------------------------------------------------------
+# Counterfactual sensitivity
 def flips_view(data: DashboardData, selected: set[int] | None) -> go.Figure:
     df = data.df
     sub = df.loc[df.index.isin(selected)] if selected else df
@@ -555,54 +208,8 @@ def flips_view(data: DashboardData, selected: set[int] | None) -> go.Figure:
     return fig
 
 
-def neighbor_breakdown(data: DashboardData, eid: int) -> go.Figure:
-    row = data.df.loc[eid]
-    true_cat = str(row["true_next_pathway"])
-    fig = go.Figure()
-    labels = {"model_a": "Model A", "model_b": "Model B", "random": "Random"}
 
-    for p in PATHWAYS:
-        vals = []
-        for m in labels:
-            nb = [int(n) for n in row[f"{m}_neighbors"]]
-            path = data.df.loc[nb, "true_next_pathway"]
-            vals.append(int((path == p).sum()))
-
-        fig.add_trace(
-            go.Bar(
-                y=list(labels.values()),
-                x=vals,
-                orientation="h",
-                name=PATHWAY_SHORT[p],
-                marker=dict(
-                    color=PATHWAY_COLORS[p],
-                    line=dict(
-                        color="#111111" if p == true_cat else "#FFFFFF",
-                        width=2.2 if p == true_cat else 0.5,
-                    ),
-                ),
-                hovertemplate="%{y}: <b>%{x} / 10</b> neighbors in " + p + "<extra></extra>",
-            )
-        )
-
-    fig.update_layout(
-        **{**BASE_LAYOUT, "margin": dict(l=68, r=12, t=28, b=34)},
-        barmode="stack",
-        height=155,
-        title=dict(
-            text=f"10 Retrieved Neighbors by Outcome (True: <b>{true_cat}</b> outlined in black)",
-            x=0.01,
-            font=dict(size=11.5),
-        ),
-        xaxis=dict(range=[0, 10], dtick=2, title=None, **GRID),
-        legend=dict(orientation="h", y=-0.34, x=0.0, font=dict(size=10.5)),
-    )
-    return fig
-
-
-# ---------------------------------------------------------------------------
-# Tab 2 & 3: Advanced Diagnostic & Analytical Views
-# ---------------------------------------------------------------------------
+# Reliability and subgroup analyses
 def wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     """95% Wilson score interval for a proportion k/n (robust for small n and p near 0/1)."""
     if n == 0:
@@ -628,7 +235,7 @@ def calibration_curve(data: DashboardData, selected: set[int] | None) -> go.Figu
     """
     df = data.df
     sub = df.loc[df.index.isin(selected)] if selected else df
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig = go.Figure()
     labels = [f"{int(v * 10)}/10" for v in VOTE_SHARE_LEVELS]
     styles = {
         "model_a": ("Model A (Tabular KNN)", "#457B9D", "solid", "circle"),
@@ -653,15 +260,6 @@ def calibration_curve(data: DashboardData, selected: set[int] | None) -> go.Figu
                 lo.append(None)
                 hi.append(None)
 
-        if model == "model_a":
-            fig.add_trace(
-                go.Bar(
-                    x=labels, y=counts, name="Encounters per vote share (Model A)",
-                    marker_color="#E9ECEF", marker_line=dict(color="#CED4DA", width=1),
-                    hovertemplate="Vote share %{x}: <b>%{y:,}</b> encounters<extra>Model A</extra>",
-                ),
-                secondary_y=False,
-            )
         fig.add_trace(
             go.Scatter(
                 x=labels, y=acc, name=f"{name} accuracy", mode="lines+markers",
@@ -672,15 +270,13 @@ def calibration_curve(data: DashboardData, selected: set[int] | None) -> go.Figu
                                "<br>n = %{customdata:,} (95% Wilson CI)<extra></extra>"),
                 connectgaps=False,
             ),
-            secondary_y=True,
         )
 
     # Reference lines: what you get WITHOUT any retrieval
     maj = float((sub["majority_pred_pathway"] == sub["true_next_pathway"]).mean() * 100)
     rnd = float((sub["random_pred_pathway"] == sub["true_next_pathway"]).mean() * 100)
-    for y, text, color in ((maj, f"Majority baseline {maj:.1f}%", "#495057"),
-                           (rnd, f"Random-neighbor baseline {rnd:.1f}%", "#ADB5BD")):
-        fig.add_hline(y=y, line=dict(color=color, dash="dash", width=1.3), secondary_y=True,
+    for y, text, color in ((maj, f"Majority baseline {maj:.1f}%", "#495057"),):
+        fig.add_hline(y=y, line=dict(color=color, dash="dash", width=1.3),
                       annotation_text=text, annotation_position="bottom right",
                       annotation_font=dict(size=10, color=color))
 
@@ -688,14 +284,14 @@ def calibration_curve(data: DashboardData, selected: set[int] | None) -> go.Figu
     fig.update_layout(
         **{**BASE_LAYOUT, "margin": dict(l=55, r=55, t=42, b=48)},
         height=370,
-        title=dict(text=f"<b>Reliability: vote share (confidence) vs. accuracy</b> — <sup>{scope}</sup>",
+        title=dict(text=f"<b>Does Neighbor Consensus Predict Accuracy?</b> — <sup>{scope}</sup>",
                    x=0.01, font=dict(size=13)),
         xaxis=dict(title="Vote share = neighbors (of 10) voting for the predicted pathway", **GRID),
         legend=dict(orientation="h", y=-0.24, x=0.0, font=dict(size=10.5)),
     )
-    fig.update_yaxes(title_text="Encounters", secondary_y=False, **GRID)
-    fig.update_yaxes(title_text="Accuracy (%)", range=[0, 100], dtick=20, secondary_y=True)
+    fig.update_yaxes(title_text="Observed accuracy (%)", range=[0, 100], dtick=20)
     return fig
+
 
 
 def disparity_battle(data: DashboardData, selected: set[int] | None, slice_by: str) -> go.Figure:
@@ -834,135 +430,3 @@ def subgroup_fairness(data: DashboardData, selected: set[int] | None, group_by: 
     return fig
 
 
-def cohort_profiler(data: DashboardData, selected: set[int] | None) -> go.Figure:
-    """Normalized clinical complexity profile (Baseline = 100%) so disparate scales are comparable."""
-    df = data.df
-    metrics = [
-        ("time_in_hospital", "Stay Length (days)"),
-        ("num_medications", "Medications Count"),
-        ("num_lab_procedures", "Lab Procedures"),
-        ("number_diagnoses", "Diagnoses Count"),
-        ("number_emergency", "Past Emergency Visits"),
-        ("number_inpatient", "Past Inpatient Visits"),
-    ]
-
-    base_means = [float(df[col].mean()) for col, _ in metrics]
-    if selected:
-        sub = df.loc[df.index.isin(selected)]
-        sel_means = [float(sub[col].mean()) for col, _ in metrics]
-        title_text = (
-            f"<b>Normalized Clinical Profile: Active Selection (n={len(sub):,}) vs. Baseline (100%)</b>"
-            "<br><sup>Bars scaled to % of Hospital Baseline so small-scale counts (e.g. Emergency=0.33) and Labs (42.5) are comparable</sup>"
-        )
-    else:
-        sel_means = base_means
-        title_text = (
-            f"<b>Normalized Clinical Profile: Hospital Baseline (n={len(df):,}, Index = 100%)</b>"
-            "<br><sup>Tip: Lasso a cohort in Tab 1 (Studio) to compare its relative clinical elevation against the 100% baseline</sup>"
-        )
-
-    labels = [label for _, label in metrics]
-    base_idx = [100.0 for _ in base_means]
-    sel_idx = [(s / b * 100.0) if b > 0 else 100.0 for s, b in zip(sel_means, base_means)]
-    diff_pcts = [idx - 100.0 for idx in sel_idx]
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Bar(
-            y=labels,
-            x=base_idx,
-            orientation="h",
-            name="Hospital Baseline (100%)",
-            marker_color="#CED4DA",
-            text=[f"Base: {b:.2f}" for b in base_means],
-            textposition="inside",
-            insidetextanchor="middle",
-            customdata=base_means,
-            hovertemplate="<b>%{y}</b><br>Hospital Baseline Mean: <b>%{customdata:.2f}</b> (100%)<extra></extra>",
-        )
-    )
-
-    if selected:
-        fig.add_trace(
-            go.Bar(
-                y=labels,
-                x=sel_idx,
-                orientation="h",
-                name="Active Selection (% of Base)",
-                marker_color=["#E76F51" if d >= 10.0 else ("#2A9D8F" if d <= -10.0 else "#1D3557") for d in diff_pcts],
-                text=[f"{s:.2f} ({d:+.1f}%)" for s, d in zip(sel_means, diff_pcts)],
-                textposition="outside",
-                textfont=dict(size=11, color="#1D3557"),
-                customdata=list(zip(sel_means, base_means, diff_pcts)),
-                hovertemplate=(
-                    "<b>%{y}</b><br>Selection Mean: <b>%{customdata[0]:.2f}</b> vs Base <b>%{customdata[1]:.2f}</b>"
-                    "<br>Relative Shift: <b>%{customdata[2]:+.1f}%</b><extra></extra>"
-                ),
-            )
-        )
-
-    fig.add_vline(x=100.0, line_dash="dash", line_color="#1D3557", line_width=1.2)
-    max_x = max(145.0, max(sel_idx) * 1.28)
-    fig.update_layout(
-        **{**BASE_LAYOUT, "margin": dict(l=155, r=65, t=48, b=45)},
-        barmode="group",
-        height=360,
-        title=dict(text=title_text, x=0.01, font=dict(size=13)),
-        xaxis=dict(title="Relative Level (% of Hospital Mean, Baseline = 100%)", range=[0, max_x], **GRID),
-        yaxis=dict(autorange="reversed"),
-        legend=dict(orientation="h", y=-0.22, x=0.0, font=dict(size=11)),
-    )
-    return fig
-
-
-def cohort_pathway_breakdown(data: DashboardData, selected: set[int] | None) -> go.Figure:
-    """Complication pathway distribution comparing selection to hospital baseline."""
-    df = data.df
-    base_dist = df["true_next_pathway"].value_counts(normalize=True)
-
-    if selected:
-        sub = df.loc[df.index.isin(selected)]
-        sel_dist = sub["true_next_pathway"].value_counts(normalize=True).reindex(PATHWAYS).fillna(0)
-        title_text = f"<b>Complication Outcomes: Selection vs. Baseline</b> (n={len(sub):,})"
-    else:
-        sel_dist = base_dist.reindex(PATHWAYS).fillna(0)
-        title_text = f"<b>Complication Outcomes: Hospital Baseline</b> (n={len(df):,})<br><sup>Tip: Lasso a cohort in Tab 1 to see outcome distribution shifts</sup>"
-
-    short_labels = [PATHWAY_SHORT[p] for p in PATHWAYS]
-    fig = go.Figure()
-
-    fig.add_trace(
-        go.Bar(
-            x=short_labels,
-            y=(base_dist.reindex(PATHWAYS).fillna(0) * 100).round(1).tolist(),
-            name="Baseline Distribution (%)",
-            marker_color="#CED4DA",
-            text=[f"{v:.1f}%" for v in (base_dist.reindex(PATHWAYS).fillna(0) * 100)],
-            textposition="auto",
-            hovertemplate="Baseline: <b>%{y:.1f}%</b> in %{x}<extra></extra>",
-        )
-    )
-
-    if selected:
-        fig.add_trace(
-            go.Bar(
-                x=short_labels,
-                y=(sel_dist * 100).round(1).tolist(),
-                name="Selection Distribution (%)",
-                marker_color=[PATHWAY_COLORS[p] for p in PATHWAYS],
-                text=[f"{v:.1f}%" for v in (sel_dist * 100)],
-                textposition="outside",
-                textfont=dict(size=11, color="#1D3557"),
-                hovertemplate="Selection: <b>%{y:.1f}%</b> in %{x}<extra></extra>",
-            )
-        )
-
-    fig.update_layout(
-        **{**BASE_LAYOUT, "margin": dict(l=50, r=20, t=42, b=45)},
-        barmode="group",
-        height=360,
-        title=dict(text=title_text, x=0.01, font=dict(size=13)),
-        yaxis=dict(title="Encounters (%)", range=[0, 105], dtick=20, **GRID),
-        legend=dict(orientation="h", y=-0.22, x=0.0, font=dict(size=11)),
-    )
-    return fig
