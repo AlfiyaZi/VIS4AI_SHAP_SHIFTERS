@@ -576,6 +576,313 @@ def create_tab_profiler() -> html.Div:
     )
 
 
+def create_tab_story(data: DashboardData) -> html.Div:
+    df = data.df
+    top_drivers = data.driver_ranking.head(8)
+
+    # Ranking table rows
+    ranking_rows = []
+    for _, r in top_drivers.iterrows():
+        val = float(r["association"])
+        ranking_rows.append(
+            html.Tr(
+                [
+                    html.Td(r["feature"], style={"fontWeight": "600", "padding": "4px 6px", "fontFamily": "Consolas, monospace", "fontSize": "11px"}),
+                    html.Td(r["kind"].split(" ")[0], style={"padding": "4px 6px", "fontSize": "10.5px", "color": "#6C757D"}),
+                    html.Td(f"{val:.3f}", style={"padding": "4px 6px", "fontWeight": "700", "color": "#1D3557"}),
+                    html.Td(
+                        html.Div(
+                            style={"backgroundColor": "#E9ECEF", "borderRadius": "3px", "width": "60px", "height": "8px", "overflow": "hidden"},
+                            children=[html.Div(style={"backgroundColor": "#457B9D", "width": f"{min(100, int(val * 100))}%", "height": "100%"})],
+                        ),
+                        style={"padding": "4px 6px"},
+                    ),
+                ],
+                style={"borderBottom": "1px solid #F1F3F5"},
+            )
+        )
+
+    # Initial dropdown encounters
+    a = df["model_a_correct"].astype(bool)
+    b = df["model_b_correct"].astype(bool)
+    a_wins_idx = df.index[a & ~b][:300]
+    init_options = [
+        {"label": f"Encounter #{eid} · {df.loc[eid, 'gender']}, {df.loc[eid, 'age']} · Actual: {df.loc[eid, 'true_next_pathway']}", "value": int(eid)}
+        for eid in a_wins_idx
+    ]
+    init_val = int(a_wins_idx[0]) if len(a_wins_idx) > 0 else int(df.index[0])
+
+    return html.Div(
+        style={"marginTop": "10px"},
+        children=[
+            # Quick Jump Navigation Bar
+            html.Div(
+                style={
+                    **CONTROL_BAR_STYLE,
+                    "backgroundColor": "#FFFFFF",
+                    "padding": "8px 16px",
+                    "marginBottom": "14px",
+                    "borderLeft": "4px solid #1D3557",
+                },
+                children=[
+                    html.Span("🎬 5-Minute Video Walkthrough (6 Chapters):", style={"fontWeight": "700", "color": "#1D3557", "fontSize": "12.5px"}),
+                    html.Div(
+                        style={"display": "flex", "gap": "14px", "flexWrap": "wrap"},
+                        children=[
+                            html.A("1 · Error Blocks & 0% Recall", href="#chapter-performance", style={"color": "#457B9D", "textDecoration": "none", "fontWeight": "600", "fontSize": "12px"}),
+                            html.A("2 · Calibration Cliff (≥8/10)", href="#chapter-calibration", style={"color": "#457B9D", "textDecoration": "none", "fontWeight": "600", "fontSize": "12px"}),
+                            html.A("3 · High-D Manifold Drivers", href="#chapter-drivers", style={"color": "#457B9D", "textDecoration": "none", "fontWeight": "600", "fontSize": "12px"}),
+                            html.A("4 · Counterfactual Flips", href="#chapter-shortcuts", style={"color": "#457B9D", "textDecoration": "none", "fontWeight": "600", "fontSize": "12px"}),
+                            html.A("5 · Conflicts & Deconfounding", href="#chapter-disagreements", style={"color": "#457B9D", "textDecoration": "none", "fontWeight": "600", "fontSize": "12px"}),
+                            html.A("6 · 10-NN Dossier (22.4% Overlap)", href="#chapter-inspector", style={"color": "#457B9D", "textDecoration": "none", "fontWeight": "600", "fontSize": "12px"}),
+                        ],
+                    ),
+                ],
+            ),
+
+            # Chapter 1: Top-Level Summary — Reordered Confusion Matrices & 0.0% Minority Recall
+            html.Div(
+                id="chapter-performance",
+                style={**CARD_STYLE, "marginBottom": "14px"},
+                children=[
+                    html.Div([
+                        html.H3("Chapter 1 · Top-Level Summary: The Majority Baseline Trap & 0.0% Minority Recall", style={"margin": "0 0 2px", "fontSize": "16px", "fontWeight": "700", "color": "#1D3557"}),
+                        html.P("Hierarchically reordered confusion matrices (Alsallakh et al. 2017 optimal leaf ordering) — click any cell to filter the entire dashboard.", style={"margin": "0 0 8px", "fontSize": "12px", "color": "#6C757D"}),
+                    ]),
+                    html.Div(
+                        style={"backgroundColor": "#F3EBF8", "borderLeft": "4px solid #8E6CBF", "padding": "8px 12px", "borderRadius": "4px", "marginBottom": "10px", "fontSize": "12px", "lineHeight": "1.4", "color": "#3C1E66"},
+                        children=[
+                            html.Strong("💡 Why We Start Here: "),
+                            html.Span("Both k=10 cosine KNN models achieve ~63.0% accuracy (Model A: 63.01%, Model B: 62.96%) — losing to the 66.36% dummy Majority Baseline ('Always Uncomplicated / Other'). Reordering by error similarity reveals a 2-state prediction collapse: both models achieve 0.0% recall on Kidney / Renal (2.5% of cohort, n=757) and Eye / Neurological (1.9%, n=563) because rare pathways almost never win a 10-neighbor majority vote."),
+                        ],
+                    ),
+                    html.Div(
+                        style={"display": "grid", "gridTemplateColumns": "repeat(2, minmax(0, 1fr))", "gap": "14px"},
+                        children=[
+                            dcc.Graph(id="graph-story-model-a", figure=figures.confusion_heatmap(data, "model_a", True, False, None), config=GRAPH_CONFIG_CLEAN),
+                            dcc.Graph(id="graph-story-model-b", figure=figures.confusion_heatmap(data, "model_b", True, False, None), config=GRAPH_CONFIG_CLEAN),
+                        ],
+                    ),
+                ],
+            ),
+
+            # Chapter 2: The Calibration Cliff
+            html.Div(
+                id="chapter-calibration",
+                style={**CARD_STYLE, "marginBottom": "14px"},
+                children=[
+                    html.Div([
+                        html.H3("Chapter 2 · Confidence Drill-Down: The Calibration Cliff (≥ 8/10 Neighbor Consensus)", style={"margin": "0 0 2px", "fontSize": "16px", "fontWeight": "700", "color": "#1D3557"}),
+                        html.P("Label-free test-time vote share (fraction of 10 neighbors voting for the predicted class) vs. empirical accuracy with 95% Wilson CIs.", style={"margin": "0 0 8px", "fontSize": "12px", "color": "#6C757D"}),
+                    ]),
+                    html.Div(
+                        style={"backgroundColor": "#EBF3F8", "borderLeft": "4px solid #457B9D", "padding": "8px 12px", "borderRadius": "4px", "marginBottom": "10px", "fontSize": "12px", "lineHeight": "1.4", "color": "#1D3557"},
+                        children=[
+                            html.Strong("💡 Key Insight: "),
+                            html.Span("In ~69.4% of hospital stays (vote share < 80%, n=21,008), neighbor consensus is weak and accuracy drops to 59.6%–59.7% — performing worse than both the 66.4% Majority Baseline and the 62.1% Random-Neighbor Baseline! Only when ≥ 8 of 10 neighbors agree (~30.6% of stays, n=9,240) does genuine clinical signal emerge, reaching 68.2%–77.6% accuracy."),
+                        ],
+                    ),
+                    dcc.Graph(id="graph-story-calibration", figure=figures.calibration_curve(data, selected=None), config=GRAPH_CONFIG_CLEAN),
+                ],
+            ),
+
+            # Chapter 3: High-Dimensional Manifold Drivers
+            html.Div(
+                id="chapter-drivers",
+                style={**CARD_STYLE, "marginBottom": "14px"},
+                children=[
+                    html.Div([
+                        html.H3("Chapter 3 · High-Dimensional Manifold: What Drives Patient Organization?", style={"margin": "0 0 2px", "fontSize": "16px", "fontWeight": "700", "color": "#1D3557"}),
+                        html.P("2D UMAP projection strictly on 127-D clinical input features (black box closed) paired with statistical Cramér's V driver rankings.", style={"margin": "0 0 8px", "fontSize": "12px", "color": "#6C757D"}),
+                    ]),
+                    html.Div(
+                        style={"backgroundColor": "#EAF6EF", "borderLeft": "4px solid #2A9D8F", "padding": "8px 12px", "borderRadius": "4px", "marginBottom": "10px", "fontSize": "12px", "lineHeight": "1.4", "color": "#1B4332"},
+                        children=[
+                            html.Strong("💡 Key Insight: "),
+                            html.Span("Why don't neighbors group by future complication pathway? Objective association metrics across all 15 inputs prove the global UMAP clusters are separated by current treatment workflow flags: Medication Change (change, Cramér's V = 0.803), Diabetes Medication (diabetesMed, V = 0.796), Max Glucose (V = 0.518), Admission Source (V = 0.488), and Insulin (V = 0.486). Repeat-patient trajectories (V1 → V2 → V3) jump across clusters whenever therapy is adjusted."),
+                        ],
+                    ),
+                    html.Div(
+                        style={"display": "grid", "gridTemplateColumns": "1.3fr 1fr", "gap": "14px", "alignItems": "center"},
+                        children=[
+                            dcc.Graph(id="graph-story-umap", figure=figures.umap_view(data, selected=None, color_mode="cluster", show_traj=True, n_patients=35, annotate=True), config=GRAPH_CONFIG_INTERACTIVE),
+                            html.Div(
+                                style={"backgroundColor": "#F8F9FA", "borderRadius": "8px", "border": "1px solid #E9ECEF", "padding": "12px"},
+                                children=[
+                                    html.H4("Top High-Dimensional Manifold Drivers", style={"margin": "0 0 6px", "fontSize": "13px", "color": "#1D3557"}),
+                                    html.P("Cramér's V (categorical) & Correlation Ratio (numeric) against HDBSCAN clusters:", style={"fontSize": "11px", "color": "#6C757D", "margin": "0 0 8px"}),
+                                    html.Table(
+                                        style={"width": "100%", "borderCollapse": "collapse", "fontSize": "11.5px"},
+                                        children=[
+                                            html.Thead(html.Tr([
+                                                html.Th("Feature", style={"textAlign": "left", "padding": "4px 6px"}),
+                                                html.Th("Type", style={"textAlign": "left", "padding": "4px 6px"}),
+                                                html.Th("Assoc", style={"textAlign": "left", "padding": "4px 6px"}),
+                                                html.Th("Strength", style={"textAlign": "left", "padding": "4px 6px"}),
+                                            ])),
+                                            html.Tbody(ranking_rows),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+
+            # Chapter 4: Perturbation Sensitivity & Shortcuts
+            html.Div(
+                id="chapter-shortcuts",
+                style={**CARD_STYLE, "marginBottom": "14px"},
+                children=[
+                    html.Div([
+                        html.H3("Chapter 4 · Perturbation Sensitivity: Demographic Shortcuts vs. Token Pooling Artifacts", style={"margin": "0 0 2px", "fontSize": "16px", "fontWeight": "700", "color": "#1D3557"}),
+                        html.P("Mean replaced neighbors (of k=10) after single-attribute counterfactual edits across all encounters (±95% CIs).", style={"margin": "0 0 8px", "fontSize": "12px", "color": "#6C757D"}),
+                    ]),
+                    html.Div(
+                        style={"backgroundColor": "#FFF3CD", "borderLeft": "4px solid #E76F51", "padding": "8px 12px", "borderRadius": "4px", "marginBottom": "10px", "fontSize": "12px", "lineHeight": "1.4", "color": "#856404"},
+                        children=[
+                            html.Strong("💡 Key Insight (Mirror Inversion): "),
+                            html.Span("Each encoder suffers from an opposite representation artifact: (1) On Sex Swap (Male ↔ Female), Model A replaces 8.86 / 10 neighbors (94.7% same-sex homophily) because unscaled binary one-hot columns add Δ||x||² = 2.0 before cosine normalization, whereas Bio_ClinicalBERT replaces only 4.15 / 10. (2) Conversely, on HbA1c Elevation (None/Norm → '>8'), Bio_ClinicalBERT replaces 8.22 / 10 neighbors (vs. 4.36 / 10 in Model A) because changing 'none' → '>', '8' alters multiple WordPiece tokens in mean-pooled 768-D space."),
+                        ],
+                    ),
+                    dcc.Graph(id="graph-story-flips", figure=figures.flips_view(data, selected=None), config=GRAPH_CONFIG_CLEAN),
+                ],
+            ),
+
+            # Chapter 5: Disagreements & Subgroup Base-Rate Deconfounding
+            html.Div(
+                id="chapter-disagreements",
+                style={**CARD_STYLE, "marginBottom": "14px"},
+                children=[
+                    html.Div([
+                        html.H3("Chapter 5 · Model Disagreements (n=5,918) & Subgroup Base-Rate Deconfounding", style={"margin": "0 0 2px", "fontSize": "16px", "fontWeight": "700", "color": "#1D3557"}),
+                        html.P("Left: Head-to-head win rates on the 19.6% of stays where A and B conflict. Right: Subgroup accuracy lift controlling for majority base-rate confounding.", style={"margin": "0 0 8px", "fontSize": "12px", "color": "#6C757D"}),
+                    ]),
+                    html.Div(
+                        style={"backgroundColor": "#EBF3F8", "borderLeft": "4px solid #1D3557", "padding": "8px 12px", "borderRadius": "4px", "marginBottom": "10px", "fontSize": "12px", "lineHeight": "1.4", "color": "#1D3557"},
+                        children=[
+                            html.Strong("💡 Key Insight: "),
+                            html.Span("Across 5,918 conflicts, standardized numeric features in Model A win 58.5% vs. 34.9% on younger diabetics (<50 yrs, n=482), whereas Bio_ClinicalBERT edges out Model A 51.2% vs. 46.0% on elderly multi-morbid patients (80+ yrs, n=1,321). Meanwhile, controlling for each racial group's majority-class base rate proves the raw African American vs. Caucasian gap (60.0% vs. 63.7%) is a base-rate artifact (63.1% vs. 66.9% 'Other' base rate), yielding identical relative lift (-3.1 pp vs. -3.3 pp)."),
+                        ],
+                    ),
+                    html.Div(
+                        style={"display": "grid", "gridTemplateColumns": "repeat(2, minmax(0, 1fr))", "gap": "14px", "alignItems": "start"},
+                        children=[
+                            html.Div([
+                                html.Div(
+                                    style={"display": "flex", "alignItems": "center", "gap": "8px", "marginBottom": "6px"},
+                                    children=[
+                                        html.Span("Slice Disagreements By:", style={"fontSize": "11.5px", "fontWeight": "600", "color": "#495057"}),
+                                        dcc.Dropdown(
+                                            id="story-disparity-slice",
+                                            options=[
+                                                {"label": "Age Group", "value": "age"},
+                                                {"label": "True Next Pathway", "value": "true_next_pathway"},
+                                                {"label": "Diagnoses Count", "value": "number_diagnoses"},
+                                                {"label": "Length of Stay", "value": "time_in_hospital"},
+                                                {"label": "Medication Change", "value": "change"},
+                                            ],
+                                            value="age",
+                                            clearable=False,
+                                            style={"width": "210px", "fontSize": "12px"},
+                                        ),
+                                    ],
+                                ),
+                                dcc.Graph(id="graph-story-disparity", figure=figures.disparity_battle(data, selected=None, slice_by="age"), config=GRAPH_CONFIG_CLEAN),
+                            ]),
+                            html.Div([
+                                html.Div(
+                                    style={"display": "flex", "alignItems": "center", "gap": "8px", "marginBottom": "6px", "minHeight": "32px"},
+                                    children=[
+                                        html.Span("Subgroup Dimension:", style={"fontSize": "11.5px", "fontWeight": "600", "color": "#495057"}),
+                                        dcc.RadioItems(
+                                            id="story-subgroup-group",
+                                            options=[
+                                                {"label": " Race / Ethnicity", "value": "race"},
+                                                {"label": " Admission Type", "value": "admission_type"},
+                                                {"label": " Age Brackets", "value": "age"},
+                                            ],
+                                            value="race",
+                                            inline=True,
+                                            inputStyle={"marginRight": "4px", "marginLeft": "8px"},
+                                            style={"fontSize": "12px"},
+                                        ),
+                                    ],
+                                ),
+                                dcc.Graph(id="graph-story-subgroup", figure=figures.subgroup_fairness(data, selected=None, group_by="race"), config=GRAPH_CONFIG_CLEAN),
+                            ]),
+                        ],
+                    ),
+                ],
+            ),
+
+            # Chapter 6: 10-Nearest-Neighbor Overlap Dossier
+            html.Div(
+                id="chapter-inspector",
+                style={**CARD_STYLE, "marginBottom": "14px"},
+                children=[
+                    html.Div([
+                        html.H3("Chapter 6 · Side-by-Side 10-NN Dossier: 22.4% Neighbor Overlap & Prompt Audit", style={"margin": "0 0 2px", "fontSize": "16px", "fontWeight": "700", "color": "#1D3557"}),
+                        html.P("Direct encounter-level audit comparing retrieved neighbors, cosine similarities (1 - dist), and shared overlap.", style={"margin": "0 0 8px", "fontSize": "12px", "color": "#6C757D"}),
+                    ]),
+                    html.Div(
+                        style={"backgroundColor": "#EAF6EF", "borderLeft": "4px solid #2A9D8F", "padding": "8px 12px", "borderRadius": "4px", "marginBottom": "10px", "fontSize": "12px", "lineHeight": "1.4", "color": "#1B4332"},
+                        children=[
+                            html.Strong("💡 Key Insight: "),
+                            html.Span("Despite virtually identical ~63.0% accuracy, Model A and Model B share only 22.4% of their retrieved neighbors on average (2.24 of 10)! Inspect individual stays below to see how tabular feature matching and clinical text embeddings retrieve completely different cohorts."),
+                        ],
+                    ),
+                    html.Div(
+                        style={
+                            "backgroundColor": "#F8F9FA",
+                            "border": "1px solid #E9ECEF",
+                            "borderRadius": "6px",
+                            "padding": "10px 14px",
+                            "display": "flex",
+                            "gap": "14px",
+                            "alignItems": "center",
+                            "flexWrap": "wrap",
+                            "marginBottom": "12px",
+                        },
+                        children=[
+                            html.Div([
+                                html.Label("Filter Examples: ", style={"fontSize": "11.5px", "fontWeight": "600", "marginRight": "6px"}),
+                                dcc.Dropdown(
+                                    id="story-case-type",
+                                    options=[
+                                        {"label": "Model A Correct, Model B Wrong (A Wins)", "value": "a_wins"},
+                                        {"label": "Model B Correct, Model A Wrong (B Wins)", "value": "b_wins"},
+                                        {"label": "Both Wrong", "value": "both_wrong"},
+                                        {"label": "Any Encounter", "value": "all"},
+                                    ],
+                                    value="a_wins",
+                                    clearable=False,
+                                    style={"width": "260px", "fontSize": "12px"},
+                                ),
+                            ]),
+                            html.Div(
+                                style={"flex": "1"},
+                                children=[
+                                    html.Label("Select Encounter to Audit: ", style={"fontSize": "11.5px", "fontWeight": "600", "marginRight": "6px"}),
+                                    dcc.Dropdown(
+                                        id="story-encounter-dropdown",
+                                        options=init_options,
+                                        value=init_val,
+                                        clearable=False,
+                                        style={"fontSize": "12px"},
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    html.Div(id="story-retrieval-inspector"),
+                ],
+            ),
+        ],
+    )
+
+
 def build_layout(data: DashboardData) -> html.Div:
     df = data.df
     metrics = data.metrics
@@ -602,9 +909,16 @@ def build_layout(data: DashboardData) -> html.Div:
             # Main Navigation Tabs
             dcc.Tabs(
                 id="main-tabs",
-                value="tab-studio",
+                value="tab-story",
                 style={"marginBottom": "12px"},
                 children=[
+                    dcc.Tab(
+                        label="🎬 Curated Storyline (5-Min Video Walkthrough)",
+                        value="tab-story",
+                        style={"fontWeight": "600", "padding": "10px", "fontSize": "13px"},
+                        selected_style={"fontWeight": "700", "color": "#1D3557", "borderTop": "3px solid #1D3557", "padding": "10px", "fontSize": "13px"},
+                        children=[create_tab_story(data)],
+                    ),
                     dcc.Tab(
                         label="🎛️ Primary Retrieval Studio (Views 1 – 4)",
                         value="tab-studio",

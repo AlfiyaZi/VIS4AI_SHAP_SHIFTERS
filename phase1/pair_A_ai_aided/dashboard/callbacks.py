@@ -407,3 +407,200 @@ def register_callbacks(app, data: data_layer.DashboardData):
     def render_cohort_pathways(selected_ids):
         selected_set = set(selected_ids) if selected_ids else None
         return figures.cohort_pathway_breakdown(data, selected_set)
+
+    # -----------------------------------------------------------------------
+    # Tab 1: Curated Storyline (5-Min Video Walkthrough)
+    # -----------------------------------------------------------------------
+    @app.callback(
+        Output("story-encounter-dropdown", "options"),
+        Output("story-encounter-dropdown", "value"),
+        Input("story-case-type", "value"),
+        Input("store-selected-ids", "data"),
+        State("story-encounter-dropdown", "value"),
+    )
+    def update_story_inspector_options(case_type, selected_ids, current_val):
+        sub = df.loc[df.index.isin(selected_ids)] if selected_ids else df
+        a = sub["model_a_correct"].astype(bool)
+        b = sub["model_b_correct"].astype(bool)
+        if case_type == "a_wins":
+            sub = sub[a & ~b]
+        elif case_type == "b_wins":
+            sub = sub[b & ~a]
+        elif case_type == "both_wrong":
+            sub = sub[~a & ~b]
+
+        if sub.empty:
+            return [], None
+        chosen = [int(e) for e in sub.index[:300]]
+        if current_val is not None and current_val in sub.index and int(current_val) not in chosen:
+            chosen.insert(0, int(current_val))
+        options = [
+            {"label": f"Encounter #{eid} · {df.loc[eid, 'gender']}, {df.loc[eid, 'age']} · Actual: {df.loc[eid, 'true_next_pathway']}", "value": eid}
+            for eid in chosen
+        ]
+        new_val = int(current_val) if current_val in chosen else (chosen[0] if chosen else None)
+        return options, new_val
+
+    @app.callback(
+        Output("story-retrieval-inspector", "children"),
+        Input("story-encounter-dropdown", "value"),
+    )
+    def render_story_inspector(eid):
+        if eid is None or eid not in df.index:
+            return html.P("No encounter matches current filter. Try selecting 'Any Encounter'.", style={"fontSize": "12px", "color": "#6C757D"})
+        row = df.loc[eid]
+        ids_a = [int(v) for v in row["model_a_neighbors"]]
+        ids_b = [int(v) for v in row["model_b_neighbors"]]
+        overlap = set(ids_a) & set(ids_b)
+
+        def _make_table(model, neighbors):
+            distances = row[f"{model}_distances"]
+            rows = []
+            for rank, (nid, dist) in enumerate(zip(neighbors, distances), start=1):
+                nb = df.loc[nid]
+                sim = 1.0 - float(dist)
+                path = str(nb["true_next_pathway"])
+                is_shared = nid in overlap
+                rows.append(
+                    html.Tr(
+                        [
+                            html.Td(str(rank), style={"padding": "4px 8px", "color": "#6C757D"}),
+                            html.Td(f"#{nid}", style={"fontFamily": "Consolas, monospace", "fontWeight": "600", "padding": "4px 8px"}),
+                            html.Td(f"{sim:.3f}", style={"padding": "4px 8px", "fontWeight": "600"}),
+                            html.Td(path, style={"padding": "4px 8px", "color": data_layer.PATHWAY_COLORS.get(path, "#333"), "fontWeight": "600"}),
+                            html.Td(
+                                html.Span(
+                                    "Shared" if is_shared else "—",
+                                    style={
+                                        "backgroundColor": "#2A9D8F" if is_shared else "#F8F9FA",
+                                        "color": "#FFFFFF" if is_shared else "#ADB5BD",
+                                        "padding": "2px 6px",
+                                        "borderRadius": "3px",
+                                        "fontSize": "10.5px",
+                                        "fontWeight": "600",
+                                    },
+                                ),
+                                style={"padding": "4px 8px", "textAlign": "center"},
+                            ),
+                        ],
+                        style={"backgroundColor": "#F0F9F5" if is_shared else "#FFFFFF", "borderBottom": "1px solid #E9ECEF"},
+                    )
+                )
+            return html.Div(
+                style={"flex": "1", "minWidth": "0"},
+                children=[
+                    html.H4(
+                        "Model A · Tabular KNN (127-D Count)" if model == "model_a" else "Model B · Bio_ClinicalBERT (768-D Text)",
+                        style={"margin": "0 0 4px", "fontSize": "13px", "color": "#1D3557" if model == "model_a" else "#E63946"},
+                    ),
+                    html.P(
+                        f"Predicted: {row[f'{model}_pred_pathway']} · Vote share: {row[f'{model}_vote_share']:.0%}",
+                        style={"fontSize": "12px", "margin": "0 0 6px", "color": "#495057"},
+                    ),
+                    html.Div(
+                        style={"overflowX": "auto"},
+                        children=[
+                            html.Table(
+                                style={"borderCollapse": "collapse", "width": "100%", "fontSize": "11.5px"},
+                                children=[
+                                    html.Thead(
+                                        html.Tr([
+                                            html.Th(s, style={"textAlign": "left", "padding": "5px 8px", "backgroundColor": "#F8F9FA", "borderBottom": "1px solid #CED4DA"})
+                                            for s in ["Rank", "Encounter", "Cosine Sim", "Neighbor Pathway", "Overlap"]
+                                        ])
+                                    ),
+                                    html.Tbody(rows),
+                                ],
+                            )
+                        ],
+                    ),
+                ],
+            )
+
+        return html.Div(
+            children=[
+                html.Div(
+                    style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "padding": "8px 12px", "backgroundColor": "#F8F9FA", "borderRadius": "6px", "marginBottom": "10px", "fontSize": "12px", "flexWrap": "wrap", "gap": "8px"},
+                    children=[
+                        html.Div([
+                            html.Strong(f"Encounter #{eid}"),
+                            html.Span(f" · Patient #{int(row['patient_nbr'])} · {row['gender']}, {row['age']} · Stay: {row['time_in_hospital']}d · Diagnoses: {row['number_diagnoses']}"),
+                        ]),
+                        html.Div([
+                            html.Span("Actual Next Pathway: "),
+                            html.Strong(str(row["true_next_pathway"]), style={"color": data_layer.PATHWAY_COLORS.get(str(row["true_next_pathway"]), "#333")}),
+                            html.Span(f" | Shared Neighbors: {len(overlap)} / 10", style={"marginLeft": "10px", "fontWeight": "700", "color": "#2A9D8F" if len(overlap) > 0 else "#E63946"}),
+                        ]),
+                    ],
+                ),
+                html.Div(
+                    style={"display": "grid", "gridTemplateColumns": "repeat(2, minmax(0, 1fr))", "gap": "16px"},
+                    children=[_make_table("model_a", ids_a), _make_table("model_b", ids_b)],
+                ),
+                html.Details(
+                    style={"marginTop": "10px", "fontSize": "11.5px"},
+                    children=[
+                        html.Summary("Show Bio_ClinicalBERT Serialized Input Text", style={"cursor": "pointer", "color": "#457B9D"}),
+                        html.Pre(
+                            str(row["model_text"]),
+                            style={"fontFamily": "Consolas, monospace", "backgroundColor": "#F8F9FA", "padding": "8px", "borderRadius": "4px", "border": "1px solid #E9ECEF", "whiteSpace": "pre-wrap", "marginTop": "4px"},
+                        ),
+                    ],
+                ),
+            ]
+        )
+
+    @app.callback(
+        Output("graph-story-calibration", "figure"),
+        Input("store-selected-ids", "data"),
+    )
+    def render_story_calibration(selected_ids):
+        selected_set = set(selected_ids) if selected_ids else None
+        return figures.calibration_curve(data, selected_set)
+
+    @app.callback(
+        Output("graph-story-flips", "figure"),
+        Input("store-selected-ids", "data"),
+    )
+    def render_story_flips(selected_ids):
+        selected_set = set(selected_ids) if selected_ids else None
+        return figures.flips_view(data, selected_set)
+
+    @app.callback(
+        Output("graph-story-umap", "figure"),
+        Input("store-selected-ids", "data"),
+    )
+    def render_story_umap(selected_ids):
+        selected_set = set(selected_ids) if selected_ids else None
+        return figures.umap_view(data, selected_set, color_mode="cluster", show_traj=True, n_patients=35, annotate=True)
+
+    @app.callback(
+        Output("graph-story-model-a", "figure"),
+        Output("graph-story-model-b", "figure"),
+        Input("store-active-cell", "data"),
+    )
+    def render_story_confusion(active_cell):
+        hl_a = (active_cell["true"], active_cell["pred"]) if active_cell and active_cell.get("model") == "model_a" and "true" in active_cell else None
+        hl_b = (active_cell["true"], active_cell["pred"]) if active_cell and active_cell.get("model") == "model_b" and "true" in active_cell else None
+        return (
+            figures.confusion_heatmap(data, "model_a", True, False, hl_a),
+            figures.confusion_heatmap(data, "model_b", True, False, hl_b),
+        )
+
+    @app.callback(
+        Output("graph-story-disparity", "figure"),
+        Input("store-selected-ids", "data"),
+        Input("story-disparity-slice", "value"),
+    )
+    def render_story_disparity(selected_ids, slice_by):
+        selected_set = set(selected_ids) if selected_ids else None
+        return figures.disparity_battle(data, selected_set, slice_by or "age")
+
+    @app.callback(
+        Output("graph-story-subgroup", "figure"),
+        Input("store-selected-ids", "data"),
+        Input("story-subgroup-group", "value"),
+    )
+    def render_story_subgroup(selected_ids, group_by):
+        selected_set = set(selected_ids) if selected_ids else None
+        return figures.subgroup_fairness(data, selected_set, group_by or "race")

@@ -430,6 +430,75 @@ class TestPairADashboard(unittest.TestCase):
         r_prof = self.client.post("/_dash-update-component", json=payload_prof)
         self.assertEqual(r_prof.status_code, 200)
 
+    def test_14_storyline_tab_and_callbacks(self):
+        """Verify Curated Storyline figures compile and callback endpoints respond with HTTP 200."""
+        sample_eids = [int(e) for e in self.df.index[:25]]
+
+        # 1. Test Story Inspector Options Callback
+        payload_opts = {
+            "output": "..story-encounter-dropdown.options...story-encounter-dropdown.value..",
+            "outputs": [
+                {"id": "story-encounter-dropdown", "property": "options"},
+                {"id": "story-encounter-dropdown", "property": "value"},
+            ],
+            "inputs": [
+                {"id": "story-case-type", "property": "value", "value": "a_wins"},
+                {"id": "store-selected-ids", "property": "data", "value": sample_eids},
+            ],
+            "state": [
+                {"id": "story-encounter-dropdown", "property": "value", "value": None},
+            ],
+            "changedPropIds": ["story-case-type.value"],
+        }
+        r_opts = self.client.post("/_dash-update-component", json=payload_opts)
+        self.assertEqual(r_opts.status_code, 200)
+
+        # 2. Test Story Inspector Content Callback
+        test_eid = int(self.df.index[0])
+        payload_insp = {
+            "output": "story-retrieval-inspector.children",
+            "outputs": {"id": "story-retrieval-inspector", "property": "children"},
+            "inputs": [{"id": "story-encounter-dropdown", "property": "value", "value": test_eid}],
+            "changedPropIds": ["story-encounter-dropdown.value"],
+        }
+        r_insp = self.client.post("/_dash-update-component", json=payload_insp)
+        self.assertEqual(r_insp.status_code, 200)
+
+        # 3. Test Story Calibration Reactive Callback
+        payload_cal = {
+            "output": "graph-story-calibration.figure",
+            "outputs": {"id": "graph-story-calibration", "property": "figure"},
+            "inputs": [{"id": "store-selected-ids", "property": "data", "value": sample_eids}],
+            "changedPropIds": ["store-selected-ids.data"],
+        }
+        r_cal = self.client.post("/_dash-update-component", json=payload_cal)
+        self.assertEqual(r_cal.status_code, 200)
+
+        # 4. Test Story Disparity & Subgroup Callbacks
+        payload_dis = {
+            "output": "graph-story-disparity.figure",
+            "outputs": {"id": "graph-story-disparity", "property": "figure"},
+            "inputs": [
+                {"id": "store-selected-ids", "property": "data", "value": sample_eids},
+                {"id": "story-disparity-slice", "property": "value", "value": "age"},
+            ],
+            "changedPropIds": ["story-disparity-slice.value"],
+        }
+        r_dis = self.client.post("/_dash-update-component", json=payload_dis)
+        self.assertEqual(r_dis.status_code, 200)
+
+        payload_sub = {
+            "output": "graph-story-subgroup.figure",
+            "outputs": {"id": "graph-story-subgroup", "property": "figure"},
+            "inputs": [
+                {"id": "store-selected-ids", "property": "data", "value": sample_eids},
+                {"id": "story-subgroup-group", "property": "value", "value": "race"},
+            ],
+            "changedPropIds": ["story-subgroup-group.value"],
+        }
+        r_sub = self.client.post("/_dash-update-component", json=payload_sub)
+        self.assertEqual(r_sub.status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

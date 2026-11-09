@@ -1,3 +1,19 @@
-# Midpoint progress video (≤ 5 min, due 11.11.2026)
+# Midpoint Progress Video & Slide Playbook (≤ 5 min, due 11.11.2026)
 
-Structure: problem, what each pair did and found, key visualizations, plan for Phase II. One figure plus one takeaway line per slide; talking points go in speaker notes. Add the video link to ../presentation_video.json.
+**Rule:** One figure plus one takeaway line per slide; talking points go in speaker notes. Add the final video link to [`../presentation_video.json`](../presentation_video.json).
+**Full Verbatim Script & Second-by-Second Cues:** See [`../../phase1/pair_A_ai_aided/video_script_and_slides.md`](../../phase1/pair_A_ai_aided/video_script_and_slides.md).
+
+---
+
+## Master Timing & Slide / Screen-Recording Structure (Total: 4m 40s)
+
+| Time | Duration | Act / Speaker | Visual on Screen (1 Figure + 1 Takeaway Line) | Takeaway Line (On Slide / Banner) | Why We Show It (Rubric Alignment) |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| **0:00 – 0:40** | `40s` | **Act 1: Problem & Contract** | Pipeline diagram: UCI Diabetes ($N=30,248$ stays, $16,773$ patients) $\to$ Model A (127-D Cosine KNN, 63.01%) vs. Model B (`Bio_ClinicalBERT` 768-D Cosine KNN, 62.96%) vs. Majority Baseline (66.36%) | *"Leakage-Free Next-Visit Retrieval: Both KNN Encoders (~63.0%) Trail the 66.4% Majority Baseline"* | Establishes authentic UCI serialization, future-visit targets ($V_{t+1}$), and the core accuracy puzzle. |
+| **0:40 – 1:00** | `20s` | **Act 2A: Pair A (Ch. 1 & 2)** | Live Dashboard (`Tab 1`): Reordered Confusion Matrices (Ch. 1) $\to$ Test-Time Calibration Curve with 95% Wilson CIs (Ch. 2) | *"The Calibration Cliff: KNN Only Beats the 66.4% Baseline When $\ge 8/10$ Neighbors Agree (30.6% of Stays, 68.2%–77.6% Acc)"* | Uses confusion matrix reordering as a top-level summary before drilling into test-time confidence (`vote_share`). |
+| **1:00 – 1:30** | `30s` | **Act 2B: Pair A (Ch. 3)** | Live Dashboard (`Tab 1`): 127-D UMAP Manifold with HDBSCAN Clusters + Cramér's V Driver Table + Trajectories ($V_1 \to V_2 \to V_3$) | *"Manifold Driven by Treatment Workflow Flags (`change` $V=0.803$, `diabetesMed` $V=0.796$), Not Future Complication"* | Directly satisfies *"Visualizations of high-dimensional data driving your patterns"* (Lecture 3). |
+| **1:30 – 2:00** | `30s` | **Act 2C: Pair A (Ch. 4 & 6)** | Live Dashboard (`Tab 1`): Counterfactual Neighbor Flips (Ch. 4) & 10-NN Dossier Table (Ch. 6) | *"Mirror-Image Artifacts: Model A Flips 8.86/10 on Sex Swap; Model B Flips 8.22/10 on HbA1c Elevation (Only 22.4% Neighbor Overlap)"* | Demonstrates causal attribute influence and mechanistic representation vulnerabilities. |
+| **2:00 – 2:35** | `35s` | **Act 2D: Pair A (Ch. 5 & Studio)** | Live Dashboard (`Tab 1` Ch. 5 $\to$ `Tab 2/4` Studio & 100%-Normalized Cohort Profiler) | *"Age Complementarity (<50y vs 80+y), Base-Rate Deconfounding (-3.1 vs -3.3 pp Racial Lift) & Dynamic Cohort Profiling"* | Connects subgroup explanations to clinical complexity shifts via linked multi-view brushing. |
+| **2:35 – 3:25** | `50s` | **Act 3: Pair B (Human-Only)** | Pair B Static Figures: Minority Pathway Recall Collapse (0.0% Kidney/Eye) & Demographic Flip Distributions | *"Human-Only Investigation: Class Imbalance Collapse & Demographic Homophily Confirmed Without GenAI"* | Shows Pair B's independent pipeline from the static Parquet contract. |
+| **3:25 – 4:10** | `45s` | **Act 4: AI4Vis Story** | Comparison Matrix: Pair A (AI-Aided) vs. Pair B (Human-Only) across Roles 1–5 | *"AI4Vis: Rapid Interactive Engineering vs. High Verification Overhead (Catching Leakage, Tautology & Base-Rate Confounding)"* | Tells a coherent, honest story of how AI helped and where human statistical auditing was mandatory. |
+| **4:10 – 4:40** | `30s` | **Act 5: Phase II Plan** | Phase II Architecture Diagram: Cosine Distance SHAP (Model A) vs. Layerwise Probing & Attention (`Bio_ClinicalBERT`) | *"Phase II (Pairs Swap Roles): Opening the Black Box with SHAP & Transformer Attention Probing"* | Links Phase I behavioral findings directly to two white-box explanation techniques for Phase II. |

@@ -684,6 +684,14 @@ def calibration_curve(data: DashboardData, selected: set[int] | None) -> go.Figu
                       annotation_text=text, annotation_position="bottom right",
                       annotation_font=dict(size=10, color=color))
 
+    # Highlight true signal zone: vote share >= 80% (indices 3.5 to 6.5)
+    fig.add_vrect(
+        x0=3.5, x1=6.5, fillcolor="#2A9D8F", opacity=0.08, layer="below", line_width=0,
+        annotation_text="Signal Zone (≥80% Vote Share Beats 66.4% Majority)",
+        annotation_position="top left",
+        annotation_font=dict(size=10, color="#2A9D8F"),
+    )
+
     scope = f"Selection (n={len(sub):,})" if selected else f"Full cohort (n={len(sub):,})"
     fig.update_layout(
         **{**BASE_LAYOUT, "margin": dict(l=55, r=55, t=42, b=48)},
