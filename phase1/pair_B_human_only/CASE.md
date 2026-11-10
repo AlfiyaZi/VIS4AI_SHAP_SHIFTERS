@@ -14,9 +14,9 @@ Alfiia Ziganshina, Aqeel Jajja. Same problem as Pair A, own analysis, no generat
 - **Drill-down view(s):** neighbours replaced per stay after one edit (Fig. 2); crowding vs.
   flips (Fig. 3); fragile stays in the input UMAP and fragile vs. stable fields (Fig. 4a/4b);
   prediction change (Fig. 5); same-pathway neighbours for rare pathways (Fig. 6).
-- **What would confirm / refute it:** confirmed if fragility concentrates in an input-defined
-  group (it does for Model B: emergency admissions with unknown specialty) and the rare-pathway
-  signal is present but outvoted (it is). Refuted if flips were uniform across stays or the
+- **What would confirm / disprove it:** confirmed if fragility concentrates in an input defined
+  group (for Model B: emergency admissions with unknown specialty) and the rare-pathway
+  signal is present but outvoted. Disproved if flips were uniform across stays or the
   neighbours of rare stays were at random level (true for kidney, not for eye/neuro in Model A).
 
 ## Narrowed and dropped
