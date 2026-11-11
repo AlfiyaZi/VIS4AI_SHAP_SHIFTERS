@@ -4,22 +4,22 @@
         {
             "first_name": "Julian",
             "last_name": "Bakan",
-            "workload": 0.25
+            "workload": 0.33
         },
         {
             "first_name": "Alfiia",
             "last_name": "Ziganshina",
-            "workload": 0.25
+            "workload": 0.33
         },
         {
             "first_name": "Ahmad",
             "last_name": "Hasan",
-            "workload": 0.25
+            "workload": 0.33
         },
         {
             "first_name": "Aqeel",
             "last_name": "Jajja",
-            "workload": 0.25
+            "workload": 0.00
         }
     ]
 }
