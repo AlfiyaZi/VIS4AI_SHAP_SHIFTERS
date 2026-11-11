@@ -56,13 +56,10 @@ phase1/
 phase2/
   pair_A_human_only/
   pair_B_ai_aided/
-ai4vis/                              AI interaction logs and reflection
-  phase1_ai_log.md
-  phase2_ai_log.md
-  reflection.md
-ai-interactions/                     Structured GenAI interaction logs (Moodle format)
-  phase1_ai_log.md
-ai_reflection_midpoint.md            Phase I GenAI reflection report (Pair A vs. Pair B)
+ai4vis/                              AI4VIS interaction logs and reflections (Course standard)
+  phase1_ai_log.md                   Pair A (AI-aided) prompt log, decisions, and case studies
+  phase2_ai_log.md                   Pair B (AI-aided) interaction log (Phase II)
+  reflection.md                      Reflection report: AI-aided vs. Human-only comparative audit
 presentation/
   midpoint/                          Progress video (<= 5 min) structure & submission notes
   final/                             Final slide deck (10-min recorded presentation)

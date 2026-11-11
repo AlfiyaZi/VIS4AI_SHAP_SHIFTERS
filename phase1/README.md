@@ -31,9 +31,9 @@ Rules: every finding cites a figure or number the notebook actually produces; sh
 ## Who does what
 
 - **All four (one meeting):** agree on the questions, data and starting visualization; assign Pair A and Pair B in the [README](../README.md).
-- **Pair A – AI-aided** ([pair_A_ai_aided/](pair_A_ai_aided/)): the same questions with richer interaction (e.g. a linked dashboard: select patients in the UMAP and see their neighbors and features). Log prompts and accepted / rejected suggestions in [../ai-interactions/phase1_ai_log.md](../ai-interactions/phase1_ai_log.md).
+- **Pair A – AI-aided** ([pair_A_ai_aided/](pair_A_ai_aided/)): the same questions with richer interaction (e.g. a linked dashboard: select patients in the UMAP and see their neighbors and features). Log prompts and accepted / rejected suggestions in [../ai4vis/phase1_ai_log.md](../ai4vis/phase1_ai_log.md).
 - **Pair B – human-only** ([pair_B_human_only/](pair_B_human_only/)): own code from the shared outputs, not a copy of Pair A's notebook.
-- **End of phase:** compare insights, visualization choices, speed vs. verification effort and confidence in [../ai_reflection_midpoint.md](../ai_reflection_midpoint.md).
+- **End of phase:** compare insights, visualization choices, speed vs. verification effort and confidence in [../ai4vis/reflection.md](../ai4vis/reflection.md).
 
 ## Timeline to the midpoint
 

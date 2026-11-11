@@ -1,18 +1,23 @@
-# AI-Interactions Log — Phase I (Pair A, AI-Aided)
+# AI4Vis Interaction Log — Phase I (Pair A, AI-Aided)
 
 **Course:** AI and Visualization (WS26), JKU Linz (Visual Data Science Lab)  
 **Team Name:** SHAP Shifters  
 **Pair A (AI-Aided):** Julian Bakan (`k11913166`), Ahmad Hasan (`k51821183`)  
 **Pair B (Human-Only):** Alfiia Ziganshina (`k12456306`), Aqeel Jajja (`k12554936`)  
 
-*(Note: Per official course instructions in `course_materials/Moodle_page.txt`, the canonical AI interaction records are maintained in [`../ai-interactions/phase1_ai_log.md`](../ai-interactions/phase1_ai_log.md) and [`../ai_reflection_midpoint.md`](../ai_reflection_midpoint.md) at the root of the repository. This file is synchronized for backwards-compatibility.)*
+In Phase I, Pair A worked with Generative AI assistance and Pair B worked strictly human-only. The two pairs switch roles in Phase II.
+
+This log documents all AI-assisted steps in accordance with the JKU AI & Visualization Lab WS26 guidelines (`course_materials/Moodle_page.txt` and `Lab 03 AI4VIS Practical Examples.pdf`), specifically recording:
+1. **The important prompts used** across all project sessions.
+2. **How AI-generated suggestions affected analytical decisions**.
+3. **Which suggestions were accepted, modified, refined, or rejected, and why**, categorized under the **5 GenAI Roles** introduced in Lab 03.
 
 ---
 
 ## 1. Structured AI Interaction Log (Chronological Prompts & Decisions)
 
 | Session & Date | Member | Tool | Lab 03 Role | Prompt (Verbatim / Summary) | AI Suggestion | Decision & Action | Rationale & Reflection |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **S1: 2026-10-28** (Conv `d69c11a5`) | Julian | Antigravity AI | **Role 4: Steer Investigation** | *"can you generate for our project a task and model description these are some of the others: [examples of Moodle entries]... This is what we had so far..."* | Proposed patient-similarity retrieval ($k=10$ KNN) on UCI Diabetes 130-US Hospitals comparing 127-D Tabular KNN against 768-D Bio_ClinicalBERT text embeddings predicting 4 future complication pathways. | **Accepted with refinement** | Established clear black-box evaluation boundaries and clinical relevance (retrieval for cohort matching). |
 | **S2: 2026-10-28** (Conv `d003a41c`) | Julian | Antigravity AI | **Role 1: Transform Data** & **Role 2: Design Visualizations** | *"Role & Context: You are an expert Full-Stack Visual Analytics and Explainable AI (XAI) Engineer... Step 1: Clean & Prune Obsolete Files... Step 2: Build the Bulletproof Shared Baseline (`shared/01_prepare_baseline_data.py` & `shared/02_phase1_shared_baseline.ipynb`)... Strictly NO synthetic text generation and NO silent fallbacks... Step 3: Build Pair A's Interactive Dashboard (`phase1/pair_A_ai_aided/`)... Step 4: Pair B Instructions & AI Log..."* | 1) Decouple `shared/` into precomputed Parquet/CSV/JSON artifacts (`shared/data/`); 2) Eliminate synthetic label-leaking clinical notes; 3) Build 4-view linked Dash app. | **Accepted clean rebuild; REJECTED early LLM prototype** | **Crucial rejection:** Code review ([`docs/baseline_review.md`](../docs/baseline_review.md)) proved an early LLM script had invented symptom notes conditioned on target diagnoses (label leakage) with a synthetic fallback encoder. We purged all synthetic generators and enforced a strict static data contract for Pair B. |
 | **S3: 2026-11-02** (Conv `b5a28b5f`) | Julian | Antigravity AI | **Role 2: Design & Implement** & **Role 3: Critique Design** | *"/plan Context & Goal: We are team 'SHAP_SHIFTERS' in the AI and Visualization course (WS26)... Draft a Modular Phase 1 Visual Architecture: View 1 (Investigative Scatter Explorer), View 2 (Reordered Error Matrix), View 3 (Input Space & Trajectories), View 4 (Counterfactual & Inspection Card)..."* | 1) Modularize dashboard into `layout.py`, `callbacks.py`, `figures.py`, `data_layer.py`, `app.py`; 2) Set `use_threads=False` in `pd.read_parquet()`; 3) Implement hierarchical confusion matrix reordering (Alsallakh et al., 2017); 4) Add HDBSCAN clustering and Cramér's V ranking to View 3. | **Accepted and implemented** | Discovered that PyArrow spawns thread pools that deadlock in Windows sandbox environments; passing `use_threads=False` reduced read time from hang to 0.11s. Cramér's V mathematically proved that UMAP islands are driven by medication change ($V=0.803$), not disease biology. |
@@ -29,4 +34,51 @@
 
 ## 2. In-Depth Case Studies of AI Steering, Corrections & Rejections
 
-*(See [`../ai-interactions/phase1_ai_log.md`](../ai-interactions/phase1_ai_log.md) for full case study narratives: Purging Synthetic Label-Leaking Clinical Notes, Correcting the Tautological Calibration Curve, Controlling for Subgroup Majority Base Rates, Reconciling Branch Divergence via the Martini Glass Architecture, and Rejection of AI-Generated Presentation Decks.)*
+### Case 1: Purging Synthetic Label-Leaking Clinical Notes (`01_prepare_baseline_data.py`)
+- **What GenAI Suggested:** In the earliest project prototype, GenAI generated a helper function `derive_presenting_notes_from_inputs()` that synthesized natural-language symptoms ("elevated serum creatinine, proteinuria...", "chest tightness...") based directly on `current_pathway` computed from diagnosis codes.
+- **Why It Was Rejected:** Human inspection revealed that this synthesized clinical text directly leaked ground-truth diagnostic labels into Model B's input representations. Furthermore, if PyTorch was unavailable, the script silently switched to a synthetic fallback encoder with hardcoded weights.
+- **Human Correction:** We completely excised all synthetic text generators and silent fallbacks. Model B's prompt serialization was locked to an immutable template containing only 15 authentic observable UCI fields. The prediction target was strictly redefined as the **next admission's** primary ICD-9 code (`diag_1` at visit $V_{t+1}$), dropping final visits so that zero forward leakage could occur.
+
+### Case 2: Correcting the Tautological Calibration Curve (`figures.py`)
+- **What GenAI Suggested:** In Session 4, GenAI implemented a calibration curve by binning encounters according to `model_a_agreement` (the fraction of retrieved neighbors matching the *true future pathway* $y$).
+- **Why It Was Rejected:** During the statistical self-audit (Prompt P8), we recognized that because $k=10$ KNN assigns predictions via plurality vote, any encounter with $\ge 6/10$ neighbors matching the true label $y$ mathematically *must* be classified as $y$. Plotting accuracy against `agreement` yielded a trivial identity ($100\%$ accuracy for agreement $\ge 60\%$) that is completely unknowable at test time.
+- **Human Correction:** We replaced `agreement` with **`vote_share`**—the fraction of retrieved neighbors agreeing on the *predicted class* $\hat{y}$ (a true test-time confidence score requiring zero ground truth). This revealed the genuine clinical finding: below 80% consensus, KNN accuracy drops to 59.6% (below the naive majority baseline of 66.4%), proving that clinicians must discard retrieval predictions when $\text{vote\_share} < 80\%$.
+
+### Case 3: Controlling for Subgroup Majority-Class Base Rates (`layout.py` & `figures.py`)
+- **What GenAI Suggested:** A naive subgroup accuracy bar chart comparing Model A and Model B accuracy across racial groups (`race`).
+- **Why It Was Refined:** The raw chart showed African American patients with lower accuracy ($60.0\%$) than Caucasian patients ($63.7\%$), leading GenAI to initially suggest an algorithmic demographic bias hypothesis.
+- **Human Correction:** Human checking of the underlying distributions revealed that the majority class (`Uncomplicated / Other`) has a lower prevalence among African American admissions ($63.1\%$) than Caucasian admissions ($66.9\%$). By plotting **Accuracy Lift over each subgroup's own majority baseline**, we proved that both groups experienced an identical relative drop ($-3.1\text{ pp}$ vs. $-3.3\text{ pp}$). This prevented the team from making an erroneous algorithmic-bias claim.
+
+### Case 4: Reconciling Branch Divergence via the Martini Glass Architecture
+- **What GenAI Suggested:** After Feedback 1, teammate Ahmad created a simplified vertical single-page scroll (`Ahmad/phase1/ai_aided/dashboard`) to streamline the 5-minute video, but deleted the 2D UMAP projection, Cramér's V ranking, and Cohort Profiler.
+- **Why It Was Refined:** Evaluating Ahmad's branch against the failed team rubric (14/35) showed that deleting high-dimensional visualizations would result in major point deductions.
+- **Human Correction:** We synthesized both branches on `phase1/pair-a-ai-aided` using the **Martini Glass visualization pattern**: Tab 1 provides an author-driven, 6-chapter executive story (answering Ahmad's need for a concise video script), while Tabs 2–4 preserve the deep reader-driven exploratory cockpit (satisfying course grading criteria).
+
+### Case 5: Rejection of AI-Generated Presentation Decks
+- **What GenAI Suggested:** GenAI wrote an automated 10-slide LaTeX Beamer presentation and markdown speaking script (`phase1_presentation.pdf`, `video_script_and_slides.md`).
+- **Why It Was Rejected:** The generated slides were text-heavy, generic, and lacked direct visual connection to the live interactive dashboard (violating the instructor's explicit instruction: *"Curate your visualizations... don't just throw text at us"*).
+- **Human Correction:** The team rejected the AI presentation files, deleted them from the repository, and created the final 5-minute presentation externally using authentic dashboard captures and live software demonstrations.
+
+---
+
+## 3. Pre-Split Record (Human-Only Pair)
+
+AI use by members of the human-only pair (Alfiia Ziganshina, Aqeel Jajja) prior to the official Phase I split, recorded for full transparency:
+
+| Date | Member | Tool | Prompt (Summary) | AI Suggestion | Decision & Action | Rationale |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **2026-10-28** | Alfiia | Claude Code | Review course materials, baseline pipeline structure, and initial figures | Identified label leakage risks, suggested static data contract, proposed visualization improvements | Implemented in `shared/` refactor | Ensuring a scientifically valid, leakage-free shared baseline was a shared prerequisite for both pairs before splitting. |
+
+---
+
+## 4. Summary of GenAI Strengths and Limitations in VIS4AI
+
+### Strengths
+1. **Implementation Acceleration:** GenAI enabled the rapid authoring of a 4-module, state-managed Plotly/Dash web application with 14 unit tests in days rather than weeks.
+2. **Mathematical Association Computation:** GenAI quickly implemented non-parametric statistical driver algorithms (Cramér's V and correlation ratio $\eta$) to ground UMAP cluster interpretation.
+3. **Counterfactual Test Generation:** Automated the permutation scripts for Sex swap, Age shift, and HbA1c elevation across 30,248 encounters, revealing the models' mirror-image sensitivities.
+
+### Limitations & Failure Modes
+1. **Plausible Hallucinations in Preprocessing:** GenAI naturally tends to synthesize missing data (e.g., generating clinical notes from diagnostic labels), which destroys scientific validity unless caught by rigorous human auditing.
+2. **Circular Evaluation Metrics:** GenAI readily constructs tautological visualizations (such as plotting accuracy against ground-truth agreement) that look aesthetically pleasing but are mathematically meaningless.
+3. **Generic Presentation Overload:** When asked to create presentations, GenAI produces slide decks with excessive text and generic claims that fail to convey nuanced analytical discoveries.
