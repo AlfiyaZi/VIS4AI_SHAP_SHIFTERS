@@ -10,11 +10,11 @@ Black box closed: we look only at what goes in and what comes out.
 
 See [../docs/baseline_review.md](../docs/baseline_review.md) for details.
 
-- [ ] Remove the generated "clinical presentation" sentence; serialize only real UCI fields.
-- [ ] Missing `torch` / `transformers` or a failed download raise an error (no fallback encoder, no synthetic cohort); write the encoder name and data source into the outputs.
-- [ ] Use all repeat-admission patients, not a 384-patient sample; report class sizes per pathway.
-- [ ] Tighten the ICD-9 pathway mapping; label = real next admission only.
-- [ ] Add baselines: majority class and random neighbors.
+- [x] Remove the generated "clinical presentation" sentence; serialize only real UCI fields.
+- [x] Missing `torch` / `transformers` or a failed download raise an error (no fallback encoder, no synthetic cohort); write the encoder name and data source into the outputs.
+- [x] Use all repeat-admission patients, not a 384-patient sample; report class sizes per pathway.
+- [x] Tighten the ICD-9 pathway mapping; label = real next admission only.
+- [x] Add baselines: majority class and random neighbors.
 
 ## Research questions
 
@@ -31,9 +31,9 @@ Rules: every finding cites a figure or number the notebook actually produces; sh
 ## Who does what
 
 - **All four (one meeting):** agree on the questions, data and starting visualization; assign Pair A and Pair B in the [README](../README.md).
-- **Pair A – AI-aided** ([pair_A_ai_aided/](pair_A_ai_aided/)): the same questions with richer interaction (e.g. a linked dashboard: select patients in the UMAP and see their neighbors and features). Log prompts and accepted / rejected suggestions in [../ai4vis/phase1_ai_log.md](../ai4vis/phase1_ai_log.md).
+- **Pair A – AI-aided** ([pair_A_ai_aided/](pair_A_ai_aided/)): the same questions with richer interaction (e.g. a linked dashboard: select patients in the UMAP and see their neighbors and features). Log prompts and accepted / rejected suggestions in [../ai-interactions/phase1_ai_log.md](../ai-interactions/phase1_ai_log.md).
 - **Pair B – human-only** ([pair_B_human_only/](pair_B_human_only/)): own code from the shared outputs, not a copy of Pair A's notebook.
-- **End of phase:** compare insights, visualization choices, speed vs. verification effort and confidence in [../ai4vis/reflection.md](../ai4vis/reflection.md).
+- **End of phase:** compare insights, visualization choices, speed vs. verification effort and confidence in [../ai_reflection_midpoint.md](../ai_reflection_midpoint.md).
 
 ## Timeline to the midpoint
 

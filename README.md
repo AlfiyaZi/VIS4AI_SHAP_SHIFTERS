@@ -34,7 +34,9 @@ The two pairs switch roles between Phase I and Phase II as mandated by the cours
 | Pair | Members | Phase I | Phase II |
 |---|---|---|---|
 | **Pair A** | Julian Bakan, Ahmad Hasan | **AI-aided** (linked visual dashboard) | Human-only |
-| **Pair B** | Alfiia Ziganshina, Aqeel Jajja | **Human-only** (independent manual VIS) | AI-aided |
+| **Pair B** | Alfiia Ziganshina, Aqeel Jajja* | **Human-only** (independent manual VIS by Alfiia) | AI-aided |
+
+*\*Note: Aqeel Jajja remained inactive throughout Phase I and made zero contributions (0 commits across the repository).*
 
 ```
 shared/                              Common static data contract
@@ -46,22 +48,19 @@ shared/                              Common static data contract
     counterfactual_flips.parquet     Neighbor flips under Sex swap, Age shift, HbA1c elevation
     baseline_metrics.json            Cohort benchmarks (A vs. B vs. Majority vs. Random)
 phase1/
-  pair_A_ai_aided/                   AI-aided interactive dashboard (Dash / Plotly)
-    run_dashboard.py                 Dashboard launcher
-    dashboard/                       4 coordinated visual views with cross-filtering
-  pair_B_human_only/                 Human-only visual analytics workspace
+  pair_A_ai_aided/                   Pair A (AI-aided) visual analytics workspace
+    dataset_and_models_guide.ipynb   Comprehensive 28-cell interactive guide & behavioral audit
+    run_dashboard.py                 Interactive Dash studio launcher (4 modules, Dual-Mode Story + Studio)
+    dashboard/                       Layout, callbacks, and figure builders
+    test_dashboard.py                Headless automated test suite (14 tests)
+  pair_B_human_only/                 Pair B (Human-only) visual analytics workspace
     README.md                        Step-by-step instructions for Pair B (pure Pandas)
 phase2/
   pair_A_human_only/
   pair_B_ai_aided/
-ai4vis/                              AI interaction logs and reflection
-  phase1_ai_log.md
-  phase2_ai_log.md
-  reflection.md
-presentation/
-  midpoint/                          Progress video (<= 5 min) slides
-  final/                             Final slide deck (10-min recorded presentation)
-  presentation_video.json
+ai-interactions/                     GenAI interaction log (Course deliverable)
+  phase1_ai_log.md                   Pair A important prompts, decisions, and case studies
+ai_reflection_midpoint.md            Phase I GenAI reflection report (Course deliverable)
 docs/                                Course notes, decision logs, and audit reviews
 environment.yml
 team-info.json                       Required by course
@@ -79,9 +78,9 @@ workload.json                        Required by course
 conda env create -f environment.yml
 conda activate shap_shifters
 
-# 2. Run shared baseline verification
-jupyter lab shared/02_phase1_shared_baseline.ipynb
+# 2. Explore Pair A interactive dataset, models & behavioral audit guide
+jupyter lab phase1/pair_A_ai_aided/dataset_and_models_guide.ipynb
 
-# 3. Launch Pair A Dashboard
+# 3. Launch Pair A Interactive Studio (Dash)
 python phase1/pair_A_ai_aided/run_dashboard.py
 ```

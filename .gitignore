@@ -25,6 +25,9 @@ venv/
 outputs/
 data_cache/
 
+# Local course materials (JKU lecture & lab PDFs)
+course_materials/
+
 # Local knowledge base for Claude (not shared)
 CLAUDE.md
 docs/knowledge_base.md
