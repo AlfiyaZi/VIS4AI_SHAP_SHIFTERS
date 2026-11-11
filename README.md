@@ -61,14 +61,6 @@ phase2/
 ai-interactions/                     GenAI interaction log (Course deliverable)
   phase1_ai_log.md                   Pair A important prompts, decisions, and case studies
 ai_reflection_midpoint.md            Phase I GenAI reflection report (Course deliverable)
-ai4vis/                              AI4VIS records mirror (for continuity across phases)
-  phase1_ai_log.md
-  phase2_ai_log.md
-  reflection.md
-presentation/
-  midpoint/                          Progress video (<= 5 min) structure & submission notes
-  final/                             Final slide deck (10-min recorded presentation)
-  presentation_video.json
 docs/                                Course notes, decision logs, and audit reviews
 environment.yml
 team-info.json                       Required by course
