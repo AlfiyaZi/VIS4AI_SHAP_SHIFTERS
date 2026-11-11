@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary & Protocol Compliance
 
-This document records the prompt engineering, iterative steering, and critical evaluation of Generative AI assistance during Phase I of the project, fulfilling the requirements specified in **Lab 02 (Assignment Introduction)** and **Lab 03 (AI4VIS Practical Examples)**. 
+This document records the prompt engineering, iterative steering, and critical evaluation of Generative AI assistance during Phase I of the project, fulfilling all requirements specified in **Lab 02 (Assignment Introduction)** and **Lab 03 (AI4VIS Practical Examples)**. 
 
 In accordance with course guidelines, Pair A actively leveraged Generative AI (Antigravity AI / Claude 3.5 Sonnet & Gemini 1.5 Pro) to assist in data transformation, visualization design, and analytical interpretation. Pair B operated strictly under a human-only protocol. The two pairs switch roles in Phase II.
 
@@ -195,6 +195,16 @@ flowchart TD
         A3["AI Draft: Raw 3.7 pp racial accuracy disparity"] -->|Confounding Check| B3["Discovered Subgroup Base-Rate Difference (63% vs 67%)"]
         B3 --> C3["Action: Evaluated Accuracy Lift; proved parity (-3.1 vs -3.3 pp)"]
     end
+
+    subgraph Case4["Case 4: UI Architecture"]
+        A4["Ahmad Branch: Removed projections to simplify video"] -->|Rubric Audit| B4["Risked Major Point Deductions (Failed Rubric 14/35)"]
+        B4 --> C4["Action: Dual-Mode Martini Glass (Story Tab 1 + Studio Tabs 2-4)"]
+    end
+
+    subgraph Case5["Case 5: Presentation"]
+        A5["AI Draft: 10-slide LaTeX Beamer text presentation"] -->|Human Evaluation| B5["Violated Instructor Rule: Curate Visualizations!"]
+        B5 --> C5["Action: Purged AI slides; recorded live interactive studio"]
+    end
 ```
 
 ### Case Study 1: Purging Synthetic Label-Leaking Clinical Notes
@@ -218,9 +228,65 @@ flowchart TD
 * **The Underlying Flaw:** In imbalanced cohorts, subgroup accuracy reflects subgroup base rates. African American admissions have a lower majority-class prevalence (63.1%) than Caucasian admissions (66.9%).
 * **Human Correction:** Evaluated **Accuracy Lift over subgroup baseline**. Both groups experience an identical relative drop ($-3.1\text{ pp}$ vs. $-3.3\text{ pp}$), demonstrating equal model performance across demographic subgroups.
 
+### Case Study 4: Reconciling Branch Divergence via the Martini Glass Architecture
+> [!NOTE]
+> **AI Interaction Mode: Dialectical UI Synthesis**
+* **What GenAI Proposed:** Following Feedback 1, teammate Ahmad created a simplified vertical single-page scroll (`Ahmad/phase1/ai_aided/dashboard`) to streamline the 5-minute video, but deleted the 2D UMAP projection, Cramér's V ranking, and Cohort Profiler.
+* **The Underlying Flaw:** Evaluating Ahmad's branch against the failed team rubric (14/35) showed that deleting high-dimensional visualizations would result in major point deductions.
+* **Human Correction:** We synthesized both branches on `phase1/pair-a-ai-aided` using the **Martini Glass visualization pattern** (Lecture 2): Tab 1 provides an author-driven, 6-chapter executive story (answering Ahmad's need for a concise video script), while Tabs 2–4 preserve the deep reader-driven exploratory cockpit (satisfying course grading criteria).
+
+### Case Study 5: Rejection of AI-Generated Presentation Decks
+> [!CAUTION]
+> **AI Limitation: Generic Text-Heavy Presentation Overload**
+* **What GenAI Proposed:** GenAI wrote an automated 10-slide LaTeX Beamer presentation and markdown speaking script (`phase1_presentation.pdf`, `video_script_and_slides.md`).
+* **The Underlying Flaw:** The generated slides were text-heavy, generic, and lacked direct visual connection to the live interactive dashboard (violating the instructor's explicit instruction: *"Curate your visualizations... don't just throw text at us"*).
+* **Human Correction:** The team rejected the AI presentation files, deleted them from the repository, and created the final 5-minute presentation externally using authentic dashboard screen recordings and live software demonstrations.
+
 ---
 
-## 5. Pre-Split Record (Human-Only Pair)
+## 5. Direct Answers to Lab 03 Evaluation Questions (The 5 Roles)
+
+To ensure complete alignment with the official evaluation criteria presented in **Lab 03 (AI4VIS Practical Examples)**, we address the specific reflection prompts for each of the 5 roles:
+
+### #1 GenAI as Tool to Transform Your Data (Lab 03, p. 8)
+* **Did we treat GenAI-derived data as ground truth?**  
+  *No.* We treated every script and derived column with extreme skepticism. When GenAI generated the initial baseline, we audited the raw text and discovered the synthetic symptom notes leaking target ICD-9 codes.
+* **Did the value of data transformation justify the verification effort?**  
+  *Yes.* Writing the complex serialization of 15 features across 30,248 encounters from scratch would have taken days. Auditing took ~2 hours, caught the leakage, and yielded clean, reproducible Parquet tables that unblocked Pair B.
+
+### #2 GenAI as Collaborator to Design & Implement Visualizations (Lab 03, p. 10)
+* **Did GenAI help explore alternatives we wouldn't have considered?**  
+  *Yes.* GenAI proposed rendering 2D density contour overlays on top of the jittered scatter plot to reveal density peaks that standard jittering obscured.
+* **Which design ideas came from human vs. GenAI?**  
+  *Human ideas*: The Dual-Mode Martini Glass layout (Storyline Tab + Studio Tabs), patient trajectory vectors ($V_1 \to V_2 \to V_3$), 100%-indexed baseline profiler, and Alsallakh confusion matrix reordering.  
+  *GenAI ideas*: Plotly figure scaffolding, categorical jitter math, automated HDBSCAN cluster-association loops, and the Flask headless testing framework.
+* **Which suggestions were rejected or refined?**  
+  Rejected AI-generated static Beamer slides and tautological calibration curves; refined demographic comparisons into relative accuracy lift.
+
+### #3 GenAI as Collaborator to Critique Design & Findings (Lab 03, p. 11)
+* **Did this process uncover weaknesses or overlooked findings?**  
+  *Yes.* Critiquing the 127-D UMAP projection prompted us to compute Cramér's V, mathematically proving that clusters reflect hospital billing/medication change flags ($V=0.803$), not disease pathophysiology.
+* **Which criticisms were justified vs. irrelevant?**  
+  *Justified*: Warning against discrete overplotting on integer axes; pointing out that 63% overall accuracy is inferior to the 66.4% majority baseline.  
+  *Irrelevant/Erroneous*: Initial AI warnings of "demographic algorithmic bias" which turned out to be an artifact of subgroup base rates.
+* **How did this affect our confidence?**  
+  It significantly strengthened our confidence by forcing us to confirm every visual claim with non-parametric statistics and Wilson confidence intervals.
+
+### #4 GenAI as Collaborator to Steer Your Investigation (Lab 03, p. 12)
+* **Did GenAI open up valuable directions we wouldn't have considered?**  
+  *Yes.* Prompting AI to suggest perturbation hypotheses led to the counterfactual flip experiment across all 30,248 stays, revealing that Model A is hypersensitive to Sex Swap (8.86/10 flips) while Model B is hypersensitive to HbA1c text changes (8.22/10 flips).
+* **How did this change breadth and depth compared with the human-only pair?**  
+  Pair A evaluated all 15 features across 4 coordinated tabs and computed 14 automated unit tests, whereas Pair B deliberately drilled into targeted, static class-imbalance slices without UI overhead.
+
+### #5 GenAI as Tool to Interpret Your Observations (Lab 03, p. 14)
+* **Did GenAI lead to misinterpretations or help uncover findings?**  
+  *Both.* GenAI initially misinterpreted raw demographic accuracy as algorithmic bias (which human review corrected). However, GenAI successfully helped link the poor minority recall to administrative billing practices by synthesizing findings from the original Strack et al. (2014) dataset paper.
+* **How did this affect confidence?**  
+  It reinforced the vital rule that GenAI interpretations cannot be trusted without empirical verification.
+
+---
+
+## 6. Pre-Split Record (Human-Only Pair)
 
 For complete academic transparency, prior to the official Phase I split on October 28, team members of the human-only pair (Alfiia Ziganshina, Aqeel Jajja) utilized AI to audit the shared problem definition:
 
@@ -230,7 +296,7 @@ For complete academic transparency, prior to the official Phase I split on Octob
 
 ---
 
-## 6. Quantitative Human Oversight & Quality Metrics
+## 7. Quantitative Human Oversight & Quality Metrics
 
 To ensure scientific and computational integrity, all AI-generated code and analytical outputs on `phase1/pair-a-ai-aided` were subjected to automated and mathematical verification:
 
