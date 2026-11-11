@@ -4,9 +4,8 @@
 
 This directory contains Pair A's analytical workspace for Phase I:
 1. **`run_dashboard.py`**: The multi-tab interactive Dash studio featuring coordinated cross-filtering across 4 primary views, calibration curve analysis, model disparity battlegrounds, demographic audits, and dynamic cohort profiling.
-2. **`dataset_and_models_guide.ipynb`**: The comprehensive, 26-cell interactive Jupyter notebook that walks through the clinical dataset, models, 15 input features, 4 complication pathways, calibration cliff, and Phase I behavioral discoveries.
+2. **`dataset_and_models_guide.ipynb`**: The comprehensive, 28-cell interactive Jupyter notebook that walks through the clinical dataset, models, 15 input features, 4 complication pathways, calibration cliff, and Phase I behavioral discoveries.
 3. **`test_dashboard.py`**: Automated headless test suite verifying all 14 unit tests, layout endpoints, and callback persistence.
-4. **`video_script_and_slides.md`**: Second-by-second blueprint and script for the 5-minute midpoint video presentation.
 
 ---
 

@@ -47,11 +47,10 @@ shared/                              Common static data contract
     baseline_metrics.json            Cohort benchmarks (A vs. B vs. Majority vs. Random)
 phase1/
   pair_A_ai_aided/                   Pair A (AI-aided) visual analytics workspace
-    dataset_and_models_guide.ipynb   Comprehensive 26-cell interactive guide & behavioral audit
+    dataset_and_models_guide.ipynb   Comprehensive 28-cell interactive guide & behavioral audit
     run_dashboard.py                 Interactive Dash studio launcher (4 modules, Dual-Mode Story + Studio)
     dashboard/                       Layout, callbacks, and figure builders
     test_dashboard.py                Headless automated test suite (14 tests)
-    video_script_and_slides.md       Second-by-second 5-minute midpoint presentation script
   pair_B_human_only/                 Pair B (Human-only) visual analytics workspace
     README.md                        Step-by-step instructions for Pair B (pure Pandas)
 phase2/
@@ -65,7 +64,7 @@ ai-interactions/                     Structured GenAI interaction logs (Moodle f
   phase1_ai_log.md
 ai_reflection_midpoint.md            Phase I GenAI reflection report (Pair A vs. Pair B)
 presentation/
-  midpoint/                          Progress video (<= 5 min) slides & speaker playbook
+  midpoint/                          Progress video (<= 5 min) structure & submission notes
   final/                             Final slide deck (10-min recorded presentation)
   presentation_video.json
 docs/                                Course notes, decision logs, and audit reviews
