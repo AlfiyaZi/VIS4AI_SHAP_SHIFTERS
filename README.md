@@ -34,7 +34,9 @@ The two pairs switch roles between Phase I and Phase II as mandated by the cours
 | Pair | Members | Phase I | Phase II |
 |---|---|---|---|
 | **Pair A** | Julian Bakan, Ahmad Hasan | **AI-aided** (linked visual dashboard) | Human-only |
-| **Pair B** | Alfiia Ziganshina, Aqeel Jajja | **Human-only** (independent manual VIS) | AI-aided |
+| **Pair B** | Alfiia Ziganshina, Aqeel Jajja* | **Human-only** (independent manual VIS by Alfiia) | AI-aided |
+
+*\*Note: Aqeel Jajja remained inactive throughout Phase I and made zero contributions (0 commits across the repository).*
 
 ```
 shared/                              Common static data contract

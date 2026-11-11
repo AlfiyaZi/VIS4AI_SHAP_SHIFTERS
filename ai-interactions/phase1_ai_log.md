@@ -1,9 +1,12 @@
 # AI Interaction Log — Phase I (Pair A, AI-Aided)
 
 **AI-Aided Pair (Pair A):** Julian Bakan (`k11913166`), Ahmad Hasan (`k51821183`)  
-**Human-Only Pair (Pair B):** Alfiia Ziganshina (`k12456306`), Aqeel Jajja (`k12554936`)  
+**Human-Only Pair (Pair B):** Alfiia Ziganshina (`k12456306`), Aqeel Jajja (`k12554936`)*  
 **Course:** AI and Visualization (WS26), JKU Linz (Visual Data Science Lab)  
 **Team:** SHAP Shifters  
+
+> [!NOTE]
+> **\*Note on Pair B Participation:** Throughout Phase I, Pair B's human-only pipeline was executed solely by Alfiia Ziganshina (`k12456306`). Aqeel Jajja (`k12554936`) remained inactive and contributed no code or analysis (0 commits across the repository).  
 
 ---
 

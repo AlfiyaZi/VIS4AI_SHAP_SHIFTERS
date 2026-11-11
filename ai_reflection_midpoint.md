@@ -1,9 +1,13 @@
 # AI Reflection Report — Midpoint (Phase I)
 
 **AI-Aided Pair (Pair A):** Julian Bakan (`k11913166`), Ahmad Hasan (`k51821183`)  
-**Human-Only Pair (Pair B):** Alfiia Ziganshina (`k12456306`), Aqeel Jajja (`k12554936`)  
+**Human-Only Pair (Pair B):** Alfiia Ziganshina (`k12456306`), Aqeel Jajja (`k12554936`)*  
 **Course:** AI and Visualization (WS26), JKU Linz  
 **Team:** SHAP Shifters  
+
+> [!NOTE]
+> **\*Note on Team Participation & Pair B Composition:**  
+> Throughout the entirety of Phase I, Pair B's human-only analytical pipeline was conceived, developed, and executed solely and independently by **Alfiia Ziganshina** (`k12456306`). **Aqeel Jajja** (`k12554936`) has been completely inactive from the project start to the midpoint submission, making zero contributions to discussions, code, analysis, visualization, or documentation (0 commits across all repository branches).  
 
 ---
 
@@ -19,7 +23,7 @@ Our experience confirmed the central thesis of **Lab 03**:
 
 ## 2. Empirical Comparison: AI-Aided (Pair A) vs. Human-Only (Pair B)
 
-| Dimension | Pair A (AI-Aided) | Pair B (Human-Only) |
+| Dimension | Pair A (AI-Aided: Julian & Ahmad) | Pair B (Human-Only: Alfiia Ziganshina*) |
 | :--- | :--- | :--- |
 | **Development Velocity** | **High**: Rapidly built a 4-module interactive Dash web application and a 28-cell exploratory guide. | **Deliberate**: Authored clean, focused static Pandas/Matplotlib analysis directly over the shared data contract. |
 | **System & Analysis Depth** | **Broad & Coordinated**: Built a linked multi-view studio (jittered scatter, Alsallakh confusion matrix, UMAP with patient trajectories, dynamic profiler, and 14 automated unit tests). | **Targeted & Hypothesis-Driven**: Conducted targeted slice investigations of minority class recall collapse and age-bracket complementarity. |
