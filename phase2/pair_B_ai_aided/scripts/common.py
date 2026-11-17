@@ -119,6 +119,28 @@ class BertEncoder:
         return out
 
 
+def token_parts(text: str, offsets: list, special: list) -> list[tuple[str, str]]:
+    """(field, part) per token: part = 'value' (patient's value), 'template' (field name, ':', ',')
+    or 'special' ([CLS]/[SEP]). Template tokens are assigned to the field whose name they spell."""
+    spans = field_spans(text)
+    out = []
+    for (s, e), sp in zip(offsets, special):
+        if sp:
+            out.append(("[special]", "special"))
+            continue
+        field, part = "[template]", "template"
+        for label, (fs, fe) in spans.items():
+            if s >= fs and e <= fe:
+                field, part = label, "value"
+                break
+        if part == "template":
+            for label, (fs, fe) in spans.items():
+                if e <= fs and s >= fs - len(label) - 2:
+                    field = label
+        out.append((field, part))
+    return out
+
+
 def field_spans(text: str) -> dict[str, tuple[int, int]]:
     """Character span of each field's value inside a Model B text."""
     spans = {}
