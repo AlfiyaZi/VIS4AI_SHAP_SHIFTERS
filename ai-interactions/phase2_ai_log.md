@@ -2,7 +2,7 @@
 
 Phase II roles: **Pair A human-only** (Julian Bakan, Ahmad Hasan), **Pair B AI-aided** (Alfiia Ziganshina, Aqeel Jajja).
 
-## Pair B (AI-aided): Model B explained from the inside
+## Pair B (AI-aided): Model B and Model A explained from the inside
 
 **Tool:** Claude Code (Claude Opus), used as a collaborator for planning, code, figures and text. Branch `feature/phase2-pair-b-ai-aided`. All numbers in the notebook come from executed code; captions were checked against the printed outputs.
 
@@ -19,6 +19,7 @@ Phase II roles: **Pair A human-only** (Julian Bakan, Ahmad Hasan), **Pair B AI-a
 | P5 | "Add LIME also, I want to look." | Added LIME for text with template words as features, two targets (vote, similarity) and the lecture's two weaknesses measured (fidelity, stability). |
 | P6 | "Match the colours and style" (of Pair A's Phase I dashboard). | Read Pair A's `data_layer.py` / `figures.py`; moved their palettes and look into one `apply_style()` used by every Phase II figure. |
 | P7 | "Go deeper inside the model; show we train the model to see changes." | Fine-tuned a copy on the next pathway (patient split 80/20) and measured the Model B quantities at 11 checkpoints; UMAP per checkpoint. |
+| P8 | "Do the model A too." | Applied the same techniques to Model A (reproduction, exact per-field decomposition, variance share, the same Shapley game on the same 300 pairs, ICE/PDP on the same 300 stays, UMAP of the same 6,000 stays), added trained classifiers as a reference for how much outcome signal exists, and wrote the A vs B comparison notebook. |
 
 
 ### Suggestions: accepted, refined, rejected
@@ -40,20 +41,26 @@ Phase II roles: **Pair A human-only** (Julian Bakan, Ahmad Hasan), **Pair B AI-a
 | Fine-tuning code | Inline expression for the tie-break | **Refined before running** | Hard-to-read one-liner replaced by a tested helper |
 | Fine-tuning caption | "specialty 5–7 %", "macro recall 0.26" | **Corrected (AI slip)** | Checked against the saved metrics: 5.5–7.8 % and 0.265 |
 | Fig. 3 caption | Causal explanations for two outliers (admission type, insulin) | **Removed (AI speculation)** | Not checked against data; replaced by the observation only |
+| Fig. 5 (outcome probe) | "The outcome is barely decodable and fades with depth (0.11 → 0.04 above chance)" | **Corrected (AI error, found by the AI's own cross-check)** | The probe was too weak (8,400 stays, standardised features, 300 iterations). A stronger probe on all train stays gives 0.14–0.17 above chance at **every** layer; both lines are now shown |
+| Fine-tuning conclusion | "The 15 fields carry very little information about the next pathway" | **Corrected (AI over-claim)** | Classifiers trained on the outcome reach 0.37–0.39 macro recall (chance 0.25) on Model A's vector and on Model B's frozen embedding; the fine-tuned head stayed at chance because one epoch was not enough. New reading: weak signal, present, lost by the cosine vote |
+| A vs B groups | "Emergency + unknown specialty" defined by admission *type* | **Refined (AI inconsistency)** | Step 5 used admission *source* = Emergency Room; aligned to that definition |
+| Model A Shapley | Same game as Model B, 200 permutations (cheap model) | Accepted | Efficiency error < 3·10⁻⁷; same 300 pairs as Model B, so the costs are directly comparable |
 
 ### Failure patterns observed
 
 1. **Plausible but unverified explanations.** The AI wrote causal reasons into captions that no computation supported (Fig. 3) and described a plot more cleanly than it looked (Fig. 2).
 2. **Silent technical failures.** A parser that dropped one of 15 fields without an error; a tie-break rule that differed from Phase I. Both only surfaced through explicit checks.
 3. **Visual encodings that mislead.** Over-plotting decided which class was visible; the first two fixes swung from hiding to exaggerating the rare classes.
-4. **Methods that are "correct" but uninformative.** Probes for input fields are trivially perfect; the AI had to re-frame the question (how strongly, not whether).
+4. **Conclusions resting on one weak measurement.** A single under-powered probe and a one-epoch fine-tune were read as "no signal"; a stronger reference model reversed the conclusion. Negative results need a strong baseline.
+5. **Methods that are "correct" but uninformative.** Probes for input fields are trivially perfect; the AI had to re-frame the question (how strongly, not whether).
 
 ### Best practices that worked
 
 * Reproduce the model and the Phase I numbers **before** explaining it.
 * Build checks into every technique (Shapley efficiency, IG completeness, Phase I cross-check of the walk-through).
 * Look at every figure; write captions only from printed numbers.
-* Use the same explanation game for Model A and Model B so the comparison is fair.
+* Use the same explanation game, the same pairs and the same stays for Model A and Model B so the comparison is fair.
+* Before claiming "the information is not there", train a model whose only job is to find it.
 
 ## Pair A (human-only)
 

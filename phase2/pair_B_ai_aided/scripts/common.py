@@ -146,6 +146,52 @@ class BertEncoder:
         return out
 
 
+class ModelA:
+    """Model A exactly as in Phase I (shared/01_prepare_baseline_data.py, ModelAEncoder):
+    5 numeric fields z-scored + 10 categorical fields one-hot (unscaled) -> cosine KNN.
+
+    Works on {field label: value} records (the same 15 fields Model B reads as text), so both
+    models can be fed the same edited records. `slices` maps each field label to its columns, which
+    makes Model A's cosine exactly decomposable into one term per field.
+    """
+    NUMERIC = {"Age": "age_mid", "Hospital Stay": "time_in_hospital", "Labs": "num_lab_procedures",
+               "Medications": "num_medications", "Diagnoses count": "number_diagnoses"}
+    CATEGORICAL = {"Sex": "gender", "Admission Type": "admission_type", "Source": "admission_source",
+                   "Specialty": "medical_specialty", "Payer": "payer_code", "Max Glucose": "max_glu_serum",
+                   "A1C": "A1Cresult", "Insulin": "insulin", "Med Change": "change", "Diabetes Med": "diabetesMed"}
+
+    def __init__(self, df: pd.DataFrame):
+        num = df[list(self.NUMERIC.values())].astype(float).to_numpy()
+        self.mean, self.std = num.mean(0), num.std(0)          # StandardScaler (ddof = 0)
+        self.cats = {lab: sorted(df[col].astype(str).unique()) for lab, col in self.CATEGORICAL.items()}
+        self.slices, pos = {}, 0
+        for lab in self.NUMERIC:
+            self.slices[lab] = slice(pos, pos + 1); pos += 1
+        for lab, vals in self.cats.items():
+            self.slices[lab] = slice(pos, pos + len(vals)); pos += len(vals)
+        self.dim = pos
+        self.slices = {lab: self.slices[lab] for lab in FIELDS}     # text order, like Model B
+
+    @staticmethod
+    def age_mid(bracket: str) -> float:
+        return float(re.match(r"\[(\d+)-", bracket).group(1)) + 5.0
+
+    def encode(self, records: list[dict[str, str]]) -> np.ndarray:
+        x = np.zeros((len(records), self.dim), dtype=np.float32)
+        nmap = list(self.NUMERIC)
+        for i, v in enumerate(records):
+            raw = [self.age_mid(v["Age"]) if lab == "Age" else float(v[lab]) for lab in nmap]
+            x[i, :len(nmap)] = (np.array(raw) - self.mean) / self.std
+            for lab, vals in self.cats.items():
+                if v[lab] in vals:                               # handle_unknown="ignore"
+                    x[i, self.slices[lab].start + vals.index(v[lab])] = 1.0
+        return x
+
+    def field_terms(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """[n, 15] per-field dot-product terms; their sum / (|a||b|) is the cosine similarity."""
+        return np.stack([(a[:, s] * b[:, s]).sum(1) for s in self.slices.values()], axis=1)
+
+
 def token_parts(text: str, offsets: list, special: list) -> list[tuple[str, str]]:
     """(field, part) per token: part = 'value' (patient's value), 'template' (field name, ':', ',')
     or 'special' ([CLS]/[SEP]). Template tokens are assigned to the field whose name they spell."""
