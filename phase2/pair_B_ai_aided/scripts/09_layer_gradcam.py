@@ -16,7 +16,10 @@ import numpy as np
 import pandas as pd
 import torch
 
-from common import CACHE, FIG, OUT, BertEncoder, l2n, load_cohort, token_parts
+from common import (CACHE, FIG, NAVY, OUT, TEMPLATE_C, VALUE_C, BertEncoder, apply_style, l2n, load_cohort,
+                    token_parts)
+
+apply_style()
 
 df = load_cohort()
 pos = {e: i for i, e in enumerate(df["encounter_id"])}
@@ -49,7 +52,8 @@ X = l2n(np.asarray(np.load(CACHE / "phase2_model_b_layers.npy", mmap_mode="r")[:
 rng = np.random.default_rng(2)                                 # same sample as 04_token_saliency.py
 sample = rng.choice(len(df), 150, replace=False)
 rows = []
-for n, q in enumerate(sample):
+cache = OUT / "layer_gradcam_B.parquet"
+for n, q in enumerate([] if cache.exists() else sample):
     nb = pos[df["model_b_neighbors"].iloc[q][0]]
     cams, toks, parts = gradcam(df["model_text"].iloc[q], X[nb])
     for layer in range(cams.shape[0]):
@@ -59,8 +63,11 @@ for n, q in enumerate(sample):
                          "cam_share": float(c / tot)})
     if (n + 1) % 50 == 0:
         print(f"{n + 1}/150")
-res = pd.DataFrame(rows)
-res.to_parquet(OUT / "layer_gradcam_B.parquet", index=False)
+if cache.exists():
+    res = pd.read_parquet(cache)
+else:
+    res = pd.DataFrame(rows)
+    res.to_parquet(cache, index=False)
 by_part = res.groupby(["layer", "part"]).cam_share.sum().unstack() / res.q.nunique()
 print("share of Grad-CAM mass per layer (mean over stays):\n", by_part.round(3).to_string())
 
@@ -72,21 +79,21 @@ q = int(cand[0])
 cams, toks, parts = gradcam(df["model_text"].iloc[q], X[pos[df["model_b_neighbors"].iloc[q][0]]])
 cams = cams / (cams.sum(1, keepdims=True) + 1e-12)
 fig, (ax, ax2) = plt.subplots(2, 1, figsize=(17, 7.5), gridspec_kw={"height_ratios": [2.2, 1]})
-im = ax.imshow(cams[:, 1:-1], aspect="auto", cmap="Reds")
+im = ax.imshow(cams[:, 1:-1], aspect="auto", cmap="Reds"); ax.grid(False)
 ax.set_xticks(range(len(toks) - 2), [t.replace("##", "") for t in toks[1:-1]], rotation=90, fontsize=7)
 for lbl, (field, part) in zip(ax.get_xticklabels(), parts[1:-1]):
-    lbl.set_color("#B33A2E" if part == "value" else "#777777")
+    lbl.set_color(VALUE_C if part == "value" else "#868E96")
     lbl.set_fontweight("bold" if part == "value" else "normal")
 ax.set_ylabel("layer"); ax.set_yticks(range(13))
-ax.set_title(f"① Grad-CAM per layer and token, stay {df['encounter_id'].iloc[q]} (similarity to its 1st neighbour; "
+ax.set_title(f"1 | Grad-CAM per layer and token, stay {df['encounter_id'].iloc[q]} (similarity to its 1st neighbour; "
              "red labels = patient values, grey = template)", loc="left", fontsize=10)
 fig.colorbar(im, ax=ax, fraction=0.015, label="share of the layer's Grad-CAM")
-ax2.plot(by_part.index, by_part["template"], "o-", color="#777777", label="template tokens")
-ax2.plot(by_part.index, by_part["value"], "o-", color="#B33A2E", label="value tokens (the patient)")
+ax2.plot(by_part.index, by_part["template"], "o-", color=TEMPLATE_C, label="template tokens")
+ax2.plot(by_part.index, by_part["value"], "o-", color=VALUE_C, label="value tokens (the patient)")
 if "special" in by_part:
-    ax2.plot(by_part.index, by_part["special"], "o-", color="#1F5FAE", label="[CLS] / [SEP]")
+    ax2.plot(by_part.index, by_part["special"], "o-", color=NAVY, label="[CLS] / [SEP]")
 ax2.set_xlabel("layer"); ax2.set_ylabel("share of Grad-CAM"); ax2.set_ylim(0, 1)
-ax2.set_title("② Mean over 150 stays: where the similarity evidence sits, layer by layer", loc="left", fontsize=10)
+ax2.set_title("2 | Mean over 150 stays: where the similarity evidence sits, layer by layer", loc="left", fontsize=10)
 ax2.legend(frameon=False, ncol=3)
 plt.tight_layout()
 fig.savefig(FIG / "fig_layer_gradcam_B.png", dpi=150, bbox_inches="tight")

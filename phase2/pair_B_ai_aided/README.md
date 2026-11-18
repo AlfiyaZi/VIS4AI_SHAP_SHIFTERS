@@ -18,5 +18,10 @@ Run order (Python 3.11 with `torch`, `transformers`, `scikit-learn`, `umap-learn
 | `scripts/08_layer_knn.py` | Model B's classifier (KNN + vote) run on every layer | `outputs/layer_knn_B.csv` |
 | `scripts/09_layer_gradcam.py` | Grad-CAM for text: tokens x layers | `figures/fig_layer_gradcam_B.png` |
 | `scripts/10_ice_pdp.py` | ICE / partial dependence for age and HbA1c | `figures/fig_ice_pdp_B.png` |
+| `scripts/11_lime.py` | LIME for text (words incl. template), fidelity and stability checks | `figures/fig_lime_B.png` |
+| `scripts/12_finetune.py` | Fine-tunes a copy (Model B') on the next pathway, measures every checkpoint (~1 h on CPU; `--plot-only` re-draws) | `figures/fig_finetune_B.png` |
+| `scripts/13_finetune_projection.py` | UMAP of the evaluation stays per checkpoint | `figures/fig_finetune_projection_B.png` |
+
+All figures use Pair A's Phase I colours and look (`apply_style()` and the palettes in `scripts/common.py`).
 
 The notebook only reads these outputs.

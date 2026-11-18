@@ -12,7 +12,9 @@ import numpy as np
 import pandas as pd
 import umap
 
-from common import CACHE, FIG, OUT, l2n, load_cohort
+from common import CACHE, FIG, LIGHT, OUT, PATHWAY_COLORS, QUALITATIVE, VALUE_C, apply_style, l2n, load_cohort
+
+apply_style()
 
 LAYERS = [0, 2, 4, 6, 8, 10, 12]
 df = load_cohort()
@@ -45,13 +47,12 @@ ROWS = [
     ("ER + unknown specialty", er_unknown.map({True: "ER + unknown", False: "other"})),
     ("next pathway (outcome)", d["true_next_pathway"]),
 ]
-PALETTE = ["#1F5FAE", "#E07B39", "#2E9E6A", "#B33A2E", "#7B5EA7", "#BBBBBB"]
-PATHWAY_COL = {"Uncomplicated / Other": "#D5D5D5", "Cardiovascular": "#B33A2E",
-               "Kidney / Renal": "#1F5FAE", "Eye / Neurological": "#2E9E6A"}
+PALETTE = QUALITATIVE
+PATHWAY_COL = PATHWAY_COLORS
 fig, axes = plt.subplots(len(ROWS), len(LAYERS), figsize=(2.6 * len(LAYERS), 2.6 * len(ROWS)))
 for r, (title, lab) in enumerate(ROWS):
     cats = [c for c in lab.value_counts().index if c != "other"] + (["other"] if (lab == "other").any() else [])
-    colors = {c: (PALETTE[i] if c != "other" else "#D5D5D5") for i, c in enumerate(cats)}
+    colors = {c: (PALETTE[i] if c != "other" else LIGHT) for i, c in enumerate(cats)}
     if title.startswith("next pathway"):
         colors = PATHWAY_COL
     # draw the largest group first so small groups (rare pathways) stay visible on top
@@ -59,7 +60,7 @@ for r, (title, lab) in enumerate(ROWS):
     shuffle = np.random.default_rng(0).permutation(len(lab))
     for c_i, layer in enumerate(LAYERS):
         ax = axes[r, c_i]
-        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_xticks([]); ax.set_yticks([]); ax.grid(False)
         if c_i == 0:
             ax.set_ylabel(title, fontsize=10)
         if title.startswith("next pathway"):

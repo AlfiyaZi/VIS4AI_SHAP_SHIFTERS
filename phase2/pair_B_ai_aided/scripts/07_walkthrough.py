@@ -14,10 +14,12 @@ import torch
 from matplotlib.colors import TwoSlopeNorm
 from sklearn.manifold import MDS
 
-from common import CACHE, FIG, K, BertEncoder, l2n, load_cohort, record_values, render
+from common import (CACHE, FIG, K, LIGHT, NAVY, PATHWAY_COLORS, PATHWAY_ORDER, BertEncoder, apply_style, l2n,
+                    load_cohort, record_values, render)
 
-PATHWAY_COL = {"Uncomplicated / Other": "#9AA0A6", "Cardiovascular": "#B33A2E",
-               "Kidney / Renal": "#1F5FAE", "Eye / Neurological": "#2E9E6A"}
+apply_style()
+
+PATHWAY_COL = PATHWAY_COLORS
 df = load_cohort()
 X = np.asarray(np.load(CACHE / "phase2_model_b_layers.npy", mmap_mode="r")[:, -1, :], dtype=np.float32)
 Xn = l2n(X)
@@ -90,34 +92,36 @@ fig = plt.figure(figsize=(16, 9.5))
 gs = fig.add_gridspec(3, 2, width_ratios=[1.35, 1], height_ratios=[1, 1, 0.9], hspace=0.45, wspace=0.12)
 norm = TwoSlopeNorm(0, -max(abs(views[n]["attr"]).max() for n in views), max(abs(views[n]["attr"]).max() for n in views))
 for r, name in enumerate(views):
-    ax = fig.add_subplot(gs[r, 0]); ax.axis("off")
-    ax.set_title(f"{'①' if r == 0 else '③'} Tokens of the {name} text, coloured by Integrated Gradients "
+    ax = fig.add_subplot(gs[r, 0]); ax.axis("off"); ax.grid(False)
+    ax.set_title(f"{'1 |' if r == 0 else '3 |'} Tokens of the {name} text, coloured by Integrated Gradients "
                  "(red = pulls towards the 1st neighbour)", loc="left", fontsize=10)
     xpos, ypos = 0.0, 0.8
     for t, a in zip(views[name]["toks"], views[name]["attr"]):
         w = 0.012 * len(t.replace("##", "")) + 0.012
         if xpos + w > 1.0:
             xpos, ypos = 0.0, ypos - 0.3
+        fc = plt.cm.RdBu_r(norm(a))
+        ink = "white" if 0.299 * fc[0] + 0.587 * fc[1] + 0.114 * fc[2] < 0.5 else "#212529"
         ax.text(xpos, ypos, t.replace("##", ""), fontsize=9.5, family="monospace", transform=ax.transAxes,
-                bbox=dict(boxstyle="round,pad=0.15", fc=plt.cm.RdBu_r(norm(a)), ec="none"))
+                color=ink, bbox=dict(boxstyle="round,pad=0.15", fc=fc, ec="none"))
         xpos += w
 ax = fig.add_subplot(gs[0:2, 1])
-ax.scatter(*bgxy.T, s=10, c="#E3E3E3", label="150 closest stays")
+ax.scatter(*bgxy.T, s=10, c="#E9ECEF", label="150 closest stays")
 for nb, pts2, mk, name in [(views["original"]["nb"], nb0, "o", "original"), (views["HbA1c > 8"]["nb"], nb1, "s", "HbA1c > 8")]:
     for (px, py), i in zip(pts2, nb):
         ax.plot([q0[0] if name == "original" else q1[0], px], [q0[1] if name == "original" else q1[1], py],
-                color="#CCCCCC", lw=0.6, zorder=1)
+                color=LIGHT, lw=0.6, zorder=1)
     ax.scatter(*pts2.T, s=55, marker=mk, c=[PATHWAY_COL[y[i]] for i in nb], edgecolor="k", lw=0.5, zorder=2,
                label=f"neighbours ({name})")
-ax.scatter(*q0, s=220, marker="*", c="k", zorder=3, label="stay, original")
-ax.scatter(*q1, s=220, marker="*", c="#E07B39", zorder=3, label="stay, HbA1c > 8")
-ax.annotate("", xy=q1, xytext=q0, arrowprops=dict(arrowstyle="->", color="#E07B39", lw=1.5))
-ax.set_xticks([]); ax.set_yticks([])
-ax.set_title(f"② Where the stay lands in Model B's space (MDS, centered cosine)\n"
+ax.scatter(*q0, s=220, marker="*", c=NAVY, zorder=3, label="stay, original")
+ax.scatter(*q1, s=220, marker="*", c="#E63946", zorder=3, label="stay, HbA1c > 8")
+ax.annotate("", xy=q1, xytext=q0, arrowprops=dict(arrowstyle="->", color="#E63946", lw=1.5))
+ax.set_xticks([]); ax.set_yticks([]); ax.grid(False)
+ax.set_title(f"2 | Where the stay lands in Model B's space (MDS, centered cosine)\n"
              f"edit shift = {shift / views['original']['dist'][-1]:.1f} × distance to 10th neighbour", fontsize=10)
 ax.legend(fontsize=8, frameon=False, loc="lower left")
 ax = fig.add_subplot(gs[2, 1])
-paths = list(PATHWAY_COL)
+paths = PATHWAY_ORDER
 for r, name in enumerate(views):
     left = 0
     for p_ in paths:
@@ -129,7 +133,7 @@ for r, name in enumerate(views):
 ax.set_yticks([0, 1], [f"original → {views['original']['pred'].split(' /')[0]}",
                        f"HbA1c > 8 → {views['HbA1c > 8']['pred'].split(' /')[0]}"])
 ax.invert_yaxis(); ax.set_xlim(0, 10); ax.set_xlabel("votes of the 10 neighbours")
-ax.set_title(f"④ Majority vote (true next pathway: {y[q]})", fontsize=10)
+ax.set_title(f"4 | Majority vote (true next pathway: {y[q]})", fontsize=10)
 ax.legend(fontsize=7, frameon=False, ncol=2, loc="upper center", bbox_to_anchor=(0.5, -0.45))
 fig.suptitle(f"How Model B classifies one emergency stay with unknown specialty (stay {df['encounter_id'].iloc[q]})",
              fontsize=13, x=0.01, ha="left")

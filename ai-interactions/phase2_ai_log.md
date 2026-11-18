@@ -16,6 +16,9 @@ Phase II roles: **Pair A human-only** (Julian Bakan, Ahmad Hasan), **Pair B AI-a
 | P2 | "Do Model B first." / "We explained A and B in Phase I; overlap is meant, compare at the end." | Scoped to Model B; chose a field-level Shapley game that also works for Model A, so the final comparison uses the same method. |
 | P3 | "Phase II: visualise how the model works inside, how it classifies." | Added two views: per-layer projection (Lecture 03) and a one-stay walk-through record → tokens → vector → neighbours → vote (explaining by example, Lecture 05). |
 | P4 | "Look at last year's lectures and methods like SHAP and others we can use to see what happens inside the model's layers and how it classifies." | Read 2025 Lectures 04–07 and 2026 Lecture 04; mapped each method (PDP/ICE, LIME, SHAP, saliency, Grad-CAM, examples, prototypes, network dissection) to what was already used; added a classifier per layer, Grad-CAM for text and ICE/PDP. Skipped LIME (overlaps with Shapley). |
+| P5 | "Add LIME also, I want to look." | Added LIME for text with template words as features, two targets (vote, similarity) and the lecture's two weaknesses measured (fidelity, stability). |
+| P6 | "Match the colours and style" (of Pair A's Phase I dashboard). | Read Pair A's `data_layer.py` / `figures.py`; moved their palettes and look into one `apply_style()` used by every Phase II figure. |
+| P7 | "Go deeper inside the model; show we train the model to see changes." | Fine-tuned a copy on the next pathway (patient split 80/20) and measured the Model B quantities at 11 checkpoints; UMAP per checkpoint. |
 
 
 ### Suggestions: accepted, refined, rejected
@@ -32,6 +35,10 @@ Phase II roles: **Pair A human-only** (Julian Bakan, Ahmad Hasan), **Pair B AI-a
 | Fig. 2 caption | "Below a ratio of 1 few neighbours change, above it nearly all" | **Corrected (AI over-claim)** | The plot shows a steady rise, not a jump; caption rewritten to match the figure |
 | Fig. 8 caption | "The layers squeeze the space (d10 0.003 → 0.0006)" | **Corrected (AI over-simplification)** | The plot shows a fall to 0.0003 at layer 11 and a rise in layer 12; caption now describes both |
 | Grad-CAM per field | Rank fields by Grad-CAM share | **Refined** | Mass grows with the number of tokens (age = 5 tokens); stated as a caveat instead of a ranking |
+| LIME for the vote | Report LIME word weights for the classification | **Refined** | Surrogate fit R² 0.25 and stability 0.34 for the vote: reported as unreliable (LIME weakness from Lecture 04); similarity target (R² 0.88) used instead |
+| Restyle | Helvetica Neue as the figure font | **Corrected (AI error)** | Font lacked ① and →, which rendered as boxes; switched to Arial (Pair A's fallback) and plain step numbers |
+| Fine-tuning code | Inline expression for the tie-break | **Refined before running** | Hard-to-read one-liner replaced by a tested helper |
+| Fine-tuning caption | "specialty 5–7 %", "macro recall 0.26" | **Corrected (AI slip)** | Checked against the saved metrics: 5.5–7.8 % and 0.265 |
 | Fig. 3 caption | Causal explanations for two outliers (admission type, insulin) | **Removed (AI speculation)** | Not checked against data; replaced by the observation only |
 
 ### Failure patterns observed

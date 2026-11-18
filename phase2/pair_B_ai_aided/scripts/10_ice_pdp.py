@@ -13,7 +13,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from common import CACHE, FIG, K, OUT, BertEncoder, l2n, load_cohort, record_values, render
+from common import (CACHE, FIG, K, NAVY, OUT, PATHWAY_COLORS, BertEncoder, apply_style, l2n, load_cohort,
+                    record_values, render)
+
+apply_style()
 
 AGES = [f"[{10 * i}-{10 * (i + 1)})" for i in range(10)]
 A1C = ["None", "Norm", ">7", ">8"]
@@ -30,7 +33,8 @@ for q in sample:
     v = record_values(df.iloc[q])
     variants += [(q, "Age", a, render({**v, "Age": a})) for a in AGES]
     variants += [(q, "A1C", a, render({**v, "A1C": a})) for a in A1C]
-emb = l2n(BertEncoder().encode([t for *_, t in variants]))
+cache = OUT / "ice_B.parquet"
+emb = [] if cache.exists() else l2n(BertEncoder().encode([t for *_, t in variants]))
 
 rows = []
 orig_nb = {q: set(np.argsort(1 - X @ X[q] + np.where(patient == patient[q], np.inf, 0), kind="stable")[:K]) for q in sample}
@@ -40,8 +44,11 @@ for (q, field, value, _), e in zip(variants, emb):
     nb = np.argsort(d, kind="stable")[:K]
     rows.append({"q": int(q), "field": field, "value": value, "is_original": value == df[{"Age": "age", "A1C": "A1Cresult"}[field]].iloc[q],
                  "vote_share_cardio": float((y[nb] == TARGET).mean()), "kept_neighbours": len(orig_nb[q] & set(nb))})
-res = pd.DataFrame(rows)
-res.to_parquet(OUT / "ice_B.parquet", index=False)
+if cache.exists():
+    res = pd.read_parquet(cache)
+else:
+    res = pd.DataFrame(rows)
+    res.to_parquet(cache, index=False)
 
 fig, axes = plt.subplots(2, 2, figsize=(12, 7), sharey="row")
 for c, (field, values, col) in enumerate([("Age", AGES, "age"), ("A1C", A1C, "A1Cresult")]):
@@ -49,14 +56,14 @@ for c, (field, values, col) in enumerate([("Age", AGES, "age"), ("A1C", A1C, "A1
     piv = sub.pivot(index="q", columns="value", values="vote_share_cardio")[values]
     ax = axes[0, c]
     for _, row in piv.sample(80, random_state=0).iterrows():
-        ax.plot(range(len(values)), row.values, color="#B33A2E", alpha=0.12, lw=0.8)
-    ax.plot(range(len(values)), piv.mean().values, "o-", color="#B33A2E", lw=2.5, label="Model B: PDP (mean of ICE)")
+        ax.plot(range(len(values)), row.values, color=PATHWAY_COLORS[TARGET], alpha=0.12, lw=0.8)
+    ax.plot(range(len(values)), piv.mean().values, "o-", color=PATHWAY_COLORS[TARGET], lw=2.5, label="Model B: PDP (mean of ICE)")
     real = df.groupby(col)["true_next_pathway"].apply(lambda s: (s == TARGET).mean()).reindex(values)
-    ax.plot(range(len(values)), real.values, "s--", color="#333333", label="real share in the data")
+    ax.plot(range(len(values)), real.values, "s--", color=NAVY, label="real share in the data")
     ax.set_xticks(range(len(values)), values, rotation=30)
     ax.set_title(f"{field}: vote share for '{TARGET}'", fontsize=10)
     kept = sub.pivot(index="q", columns="value", values="kept_neighbours")[values]
-    axes[1, c].plot(range(len(values)), kept.mean().values, "o-", color="#E07B39")
+    axes[1, c].plot(range(len(values)), kept.mean().values, "o-", color="#E63946")
     axes[1, c].set_xticks(range(len(values)), values, rotation=30)
     axes[1, c].set_title(f"{field}: original neighbours kept (of 10), mean", fontsize=10)
     print(field, "PDP:", piv.mean().round(3).to_dict())

@@ -33,6 +33,33 @@ FIELDS = {
 }
 TEMPLATE_UNITS = {"Hospital Stay": " days"}
 
+# ---- visual style: the same colours and look as Pair A's Phase I dashboard ---------------------
+# (phase1/pair_A_ai_aided/dashboard/data_layer.py and figures.py), so Phase I and II read as one project.
+PATHWAY_COLORS = {"Kidney / Renal": "#8E6CBF", "Cardiovascular": "#D55E00",
+                  "Eye / Neurological": "#0072B2", "Uncomplicated / Other": "#A0A0A0"}
+PATHWAY_ORDER = ["Uncomplicated / Other", "Cardiovascular", "Kidney / Renal", "Eye / Neurological"]
+A1C_COLORS = {"None": "#BDBDBD", "Norm": "#009E73", ">7": "#E69F00", ">8": "#B2182B"}
+MODEL_COLORS = {"model_a": "#457B9D", "model_b": "#E63946"}
+QUALITATIVE = ["#2A9D8F", "#E76F51", "#457B9D", "#F4A261", "#E63946", "#8E6CBF", "#52B788", "#DDA15E", "#BC6C25"]
+INK, NAVY, MUTED, LIGHT, GRIDC = "#212529", "#1D3557", "#495057", "#ADB5BD", "#F1F3F5"
+VALUE_C, TEMPLATE_C = MODEL_COLORS["model_b"], LIGHT       # patient-value tokens vs. template tokens
+
+
+def apply_style() -> None:
+    """Matplotlib look matching Pair A's Plotly figures: white, light grid, system sans-serif, 12 pt."""
+    import matplotlib as mpl
+    mpl.rcParams.update({
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+        "font.size": 11, "axes.titlesize": 12, "axes.labelsize": 11, "figure.titlesize": 14,
+        "text.color": INK, "axes.labelcolor": INK, "xtick.color": MUTED, "ytick.color": MUTED,
+        "axes.edgecolor": LIGHT, "axes.spines.top": False, "axes.spines.right": False,
+        "axes.grid": True, "grid.color": GRIDC, "grid.linewidth": 1.0, "axes.axisbelow": True,
+        "axes.facecolor": "white", "figure.facecolor": "white", "savefig.facecolor": "white",
+        "axes.prop_cycle": mpl.cycler(color=QUALITATIVE), "legend.frameon": False,
+        "axes.titleweight": "bold", "axes.titlelocation": "left",
+    })
+
 
 def load_cohort() -> pd.DataFrame:
     cohort = pd.read_parquet(DATA / "cohort_encounters.parquet")
